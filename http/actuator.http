@@ -1,0 +1,5 @@
+### Prometheus Metrics
+GET http://localhost:8080/actuator/prometheus
+
+### Health Check
+GET http://localhost:8080/actuator/health
