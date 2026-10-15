@@ -10,7 +10,7 @@ Fluxion은 1인 개발 + Claude Code 협업 프로젝트지만, 포트폴리오�
 
 - `type`: `feature` / `fix` / `infra` / `refactor` / `docs` / `test`
 - 예: `feature/12-websocket-reconnect`, `fix/18-duplicate-trade-id`, `infra/21-prometheus-setup`
-- `master`에 직접 커밋하지 않는다. 모든 변경은 PR을 통해 들어온다.
+- `main`에 직접 커밋하지 않는다. 모든 변경은 PR을 통해 들어온다.
 
 ## 커밋 메시지
 
@@ -39,3 +39,17 @@ Refs #<issue-number>
 
 - Issue Template(`.github/ISSUE_TEMPLATE/`)을 사용한다 — Feature / Bug / Infra.
 - 라벨: `type:feature`, `type:bug`, `type:infra` (필요 시 `priority:*` 추가).
+
+## 작성 언어
+
+| 대상 | 언어 |
+|---|---|
+| 커밋 메시지 | 영문 (Conventional Commits) |
+| PR 제목 | 한글 (`<type>: ` 프리픽스는 영문 유지) |
+| PR 본문 | 한글 |
+| Issue 제목 / 본문 | 한글 |
+| 코드 주석 / 식별자 | 영문 |
+| 문서 (`README`, `CONTRIBUTING`, ADR) | 한글 |
+
+- PR 제목 예: `chore: GitHub 작업 규칙 및 템플릿 설정`
+- 커밋 메시지 예: `feat(ingestion): add upbit websocket client`
