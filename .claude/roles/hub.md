@@ -5,7 +5,7 @@
 
 ## 설계 논의
 
-- 쟁점은 한 응답에 하나씩만 낸다. 선택지, 추천, 이유를 담고, 사용자가 답하면 다음 쟁점으로 넘어간다.
+- 쟁점은 한 응답에 하나씩만 낸다. 선택지, 추천, 이유와 출처(`CLAUDE.md` 최신 기준과 조사 참고)를 담고, 사용자가 답하면 다음 쟁점으로 넘어간다.
 - 사소한 결정은 묻지 않고 추천안으로 정해 Issue 본문에 반영한다.
 - 설계가 정리되면 구현도 한 단계씩 사용자와 함께 진행한다. 코드는 사용자가 쓰고, Hub는 한 응답에 한 단계씩 안내하고 리뷰한다.
   - 단계 안내에는 사용자가 그대로 따라 칠 수 있는 완성된 파일 내용(코드 블록)과 각 줄의 이유를 짧게 붙인다. 요구사항 목록만 주고 사용자가 채우게 하지 않는다. 파일 작성은 사용자가 한다.
@@ -65,6 +65,33 @@
     --terminal <harness> --worktree name:Harness --task-title "<제목>" --spec "<요구사항>" --json
   ```
 - spec에는 역할과 제약, 작업 범위, 완료 조건, 보고 형식을 넣는다. 막히는 판단은 추천안으로 진행하고 요약에 적으라고 덧붙인다.
+
+## 자율 위임
+
+사용자가 "새 세션에서 알아서 진행"을 요청하면 그 요청이 해당 작업의 이슈 생성, 커밋, 푸시, PR, squash merge 승인이다. Hub는 단계마다 다시 묻지 않는다.
+
+1. 새 워크트리 워커에 맡긴다.
+   ```sh
+   orca orchestration worker-start --run <run> --from <mailbox> --agent claude \
+     --worktree new-top-level --base-branch origin/main --task-title "<제목>" --spec "<요구사항>" --json
+   ```
+2. spec에 다음을 넣는다.
+   - 승인 범위: 이슈 생성부터 squash merge까지.
+   - 금지 범위: 범위 밖 파일, 하네스 파일, 워크트리와 터미널 삭제.
+   - 결정 지침: 쟁점은 `CLAUDE.md` 최신 기준과 조사에 따라 정하고 이슈 본문에 비교 표와 출처를 남긴다.
+   - 머지하지 않고 `--outcome failed`로 보고할 조건: 빌드나 테스트 실패, 조사로 정할 수 없는 아키텍처·기술 선택, 범위 밖 변경 필요.
+   - 머지 뒤 정리: 원격 브랜치 삭제 확인, `CLAUDE.md` 머지 후 로컬 정리 (마지막 `git pull`은 빼고).
+3. 백그라운드로 감시한다 (Bash `run_in_background`). 종료 알림이 오면 worker_done의 outcome을 확인한다.
+   ```sh
+   while orca orchestration worker-show --dispatch <dispatch_id> --json | grep -q '"status": "dispatched"'; do sleep 60; done
+   ```
+4. 성공이면 이 순서로 정리한다. 워크트리 경로는 `worker-show`의 `worker.worktreeId`에서 `::` 뒤 값이다.
+   ```sh
+   orca orchestration worker-release --dispatch <dispatch_id>
+   orca worktree rm --worktree path:<경로> --force
+   git -C E:/Project/Fluxion pull --ff-only   # main이고 clean일 때만
+   ```
+5. 실패면 워크트리를 남겨 두고 사용자에게 원인과 워크트리 경로를 알린다.
 
 ## 고정 모듈 관리
 
