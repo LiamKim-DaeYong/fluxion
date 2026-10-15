@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## 프로젝트
-Fluxion — 실시간 시세/체결 데이터 수집·처리 플랫폼.
+Fluxion은 실시간 시세/체결 데이터 수집·처리 플랫폼이다.
 Kotlin / Java 25 / Spring Boot 4.1.1 / Spring Modulith 2.1.1 / JPA+Hibernate /
 PostgreSQL 18 / Flyway / Gradle Kotlin DSL / Docker Compose / Micrometer+Actuator.
 Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입한다. 처음부터 마이크로서비스로 쪼개지 않는다.
@@ -15,7 +15,7 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 ## 문서 체계 (과하게 만들지 않기)
 - `README.md`, `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`만 먼저 유지한다.
 - `docs/adr/`, `docs/BLOGGING.md`, `docs/blog/`는 실제로 ADR 또는 블로그 후보가 생겼을 때 그 시점에 만든다. 미리 빈 폴더를 만들지 않는다.
-- ADR은 "문제 — 대안 비교 — 선택과 이유 — 수용한 단점 — 검증 방법" 구조로 작성한다.
+- ADR은 문제, 대안 비교, 선택과 이유, 수용한 단점, 검증 방법 순서로 작성한다.
 
 ## 품질 기준
 - 구현 전 완료 조건과 실패 시나리오를 정의한다.
@@ -25,6 +25,20 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 
 ## 세션 관리
 - 대화 컨텍스트가 길어지면(긴 디버깅, 여러 주제 전환 등) Claude가 먼저 `/clear` 또는 새 세션 시작을 권장한다.
+
+## 멀티 세션 하네스
+- 오르카에서 세션을 Hub(사용자와 대화하는 유일한 세션), 고정 모듈(보드 `Always On` 칸, 현재 Harness), 일회성 모듈(`orca orchestration worker-start`로 띄우고 완료 후 release)로 나눠 쓴다.
+- 통신은 orchestration Run 큐로 한다. Run의 coordinator는 입력을 버리는 Mailbox 터미널이라 워커 알림이 Hub 대화에 끼어들지 않는다.
+- 역할별 절차는 `.claude/roles/<hub|harness|worker>.md`에 있다. SessionStart 훅(`.claude/hooks/session-start.sh`)이 워크트리 표시 이름으로 역할을 판별해 주입하고, Hub에는 Run ID, Mailbox handle, 안 읽은 메시지 건수도 넣는다.
+- Hub와 Harness는 컨텍스트가 상한(기본 150k 토큰, `HANDOFF_TOKEN_LIMIT`)을 넘으면 작업 단위가 끝날 때 `handoff` 스킬 형식으로 인수인계를 남긴다. 훅이 `/clear`를 보내고 새 세션에 인수인계를 주입한다.
+- Harness는 `CLAUDE.md`와 `.claude/`만 수정한다. 레포 파일은 PR로, 사용자 레벨 설정(`~/.claude`)은 적용 전에 승인을 받는다.
+- Run ID, 터미널 handle처럼 세션마다 바뀌는 값은 어떤 파일에도 적지 않는다.
+
+## 하네스 파일 관리
+- 크기 상한: `CLAUDE.md` 100줄, `MEMORY.md` 50줄, 메모리 파일 1개 30줄, 출력 스타일·스킬·역할 파일 1개 150줄.
+- 한 사실은 한 곳에만 둔다. 레포에 있는 내용은 메모리에 다시 적지 않는다.
+- 매번 필요한 규칙만 이 파일에 두고, 역할별 절차는 역할 파일로, 가끔 쓰는 절차는 스킬로 옮긴다.
+- 하네스 파일을 고칠 때마다 `harness-curate` 스킬로 크기, 중복, 낡은 내용을 점검한다.
 
 ## Git / GitHub
 - 흐름: Issue → 설계 논의 → Branch → 구현(개발자) → Test → PR → Review → Merge.
