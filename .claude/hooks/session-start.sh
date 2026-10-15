@@ -28,8 +28,8 @@ cat "$role_file"
 mkdir -p "$handoff_dir" && echo "$role" > "$handoff_dir/role"
 if [ -n "$term" ]; then
   rm -f "$handoff_dir/$term.over"
-  if [ -f "$handoff_dir/$term.restore" ]; then
-    rm -f "$handoff_dir/$term.restore"
+  if [ -f "$handoff_dir/$term.clearing" ]; then
+    rm -f "$handoff_dir/$term.clearing" "$handoff_dir/$term.restore"
     if [ -s "$handoff_dir/$role.md" ]; then
       printf '\n## 인수인계 (/clear 전 세션이 남김)\n\n'
       cat "$handoff_dir/$role.md"

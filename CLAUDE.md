@@ -38,7 +38,7 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 - 오르카에서 세션을 Hub(사용자와 대화하는 유일한 세션), 고정 모듈(보드 `Always On` 칸, 현재 Harness), 일회성 모듈(`orca orchestration worker-start`로 띄우고 완료 후 release)로 나눠 쓴다.
 - 통신은 orchestration Run 큐로 한다. Run의 coordinator는 입력을 버리는 Mailbox 터미널이라 워커 알림이 Hub 대화에 끼어들지 않는다.
 - 역할별 절차는 `.claude/roles/<hub|harness|worker>.md`에 있다. SessionStart 훅(`.claude/hooks/session-start.sh`)이 워크트리 표시 이름으로 역할을 판별해 주입하고, Hub에는 Run ID, Mailbox handle, 안 읽은 메시지 건수도 넣는다.
-- Hub와 Harness는 컨텍스트가 상한(기본 150k 토큰, `HANDOFF_TOKEN_LIMIT`)을 넘으면 작업 단위가 끝날 때 `handoff` 스킬 형식으로 인수인계를 남긴다. 훅이 `/clear`를 보내고 새 세션에 인수인계를 주입한다.
+- Hub와 Harness는 컨텍스트가 상한(기본 150k 토큰, `HANDOFF_TOKEN_LIMIT`)을 넘으면 작업 단위가 끝날 때 `handoff` 스킬 형식으로 인수인계를 남긴다. 훅이 `/clear`를 보내고 새 세션에 인수인계를 주입한다. Harness는 상한과 별개로 worker_done마다 clear한다 (`harness.md`).
 - Harness는 `CLAUDE.md`와 `.claude/`만 수정한다. 레포 파일은 PR로, 사용자 레벨 설정(`~/.claude`)은 적용 전에 승인을 받는다.
 - Run ID, 터미널 handle처럼 세션마다 바뀌는 값은 어떤 파일에도 적지 않는다.
 
@@ -51,5 +51,6 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 ## Git / GitHub
 - 흐름: Issue → 설계 논의 → Branch → 구현(개발자) → Test → PR → Review → Merge.
 - 브랜치 전략, 커밋 메시지 규칙(Conventional Commits + 이슈 번호), PR/머지 규칙은 `CONTRIBUTING.md` 참고.
+- PR을 만들기 전에 `./gradlew ktlintFormat`을 실행한다. 바뀐 파일이 있으면 `style: apply ktlint format`으로 따로 커밋하고 `./gradlew ktlintCheck`를 통과시킨다. `gh pr create`는 PreToolUse 훅(`pr-lint.sh`)이 check 실패 시 막는다.
 - `main`은 Squash merge만 허용, 머지 후 브랜치 자동 삭제로 설정되어 있다.
 - 머지 후 로컬 정리: 작업 트리 clean과 로컬 tip == PR head 확인 → `git fetch --prune` → `git switch --detach origin/main` (`main`은 E:/Project/Fluxion이 점유) → `git branch -D <브랜치>` (squash라 `-d`는 미머지로 판정) → E:/Project/Fluxion에서 `git pull --ff-only`.

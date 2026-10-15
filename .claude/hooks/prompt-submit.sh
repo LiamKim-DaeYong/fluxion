@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # UserPromptSubmit 훅 (Hub, Harness만): 컨텍스트가 상한을 넘었으면 인수인계 예고를 주입한다.
+# Harness는 /clear 대기(<term>.restore) 중에 새 입력(다음 dispatch)이 오면 예약된 clear를 취소한다.
 
 . "$(dirname "$0")/lib.sh"
 cat > /dev/null
 handoff_role || exit 0
+if [ "$role" = harness ] && [ -f "$handoff_dir/$term.restore" ]; then
+  rm -f "$handoff_dir/$term.restore"
+  echo "$(date '+%F %T') $term canceled (new input)" >> "$handoff_dir/clear.log"
+fi
 over="$handoff_dir/$term.over"
 [ -f "$over" ] || exit 0
 [ -f "$handoff_dir/$term.flag" ] && exit 0
