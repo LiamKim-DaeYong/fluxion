@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: 컨텍스트가 상한을 넘어 인수인계 예고를 받았을 때 `.claude/handoff/<역할>.md`를 쓰는 형식. Hub와 Harness가 /clear 직전에 쓴다.
+description: 컨텍스트가 상한을 넘어 인수인계 예고를 받았을 때, 또는 Harness가 worker_done 직후 작업 단위 clear를 할 때 `.claude/handoff/<역할>.md`를 쓰는 형식. Hub와 Harness가 /clear 직전에 쓴다.
 ---
 
 # handoff

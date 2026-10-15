@@ -1,6 +1,19 @@
 {
   "outputStyle": "Concise Korean",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(gh pr create*)",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/pr-lint.sh\"",
+            "timeout": 300
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "matcher": "startup|resume|clear|compact",
