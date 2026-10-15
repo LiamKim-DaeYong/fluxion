@@ -1,0 +1,19 @@
+# Kotlin style is checked by ktlint (./gradlew ktlintCheck). Settings follow the ktlint 1.8.0 docs:
+# - docs/rules/code-styles.md, docs/rules/configuration-ktlint.md: ktlint_code_style
+# - docs/rules/configuration-intellij-idea.md: "Preventing conflicts" block (IntelliJ formatter aligned with ktlint)
+root = true
+
+[*]
+insert_final_newline = true
+
+[*.{kt,kts}]
+ktlint_code_style = ktlint_official
+ij_kotlin_code_style_defaults = KOTLIN_OFFICIAL
+
+# Disable wildcard imports entirely
+ij_kotlin_name_count_to_use_star_import = 2147483647
+ij_kotlin_name_count_to_use_star_import_for_members = 2147483647
+ij_kotlin_packages_to_use_import_on_demand = unset
+
+# No ktlint rules are disabled. Disable one only when it blocks real code, with the reason next to it:
+# ktlint_standard_<rule-id> = disabled
