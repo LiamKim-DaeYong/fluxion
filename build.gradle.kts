@@ -50,7 +50,11 @@ dependencies {
 
 dependencyManagement {
     imports {
-        mavenBom(libs.spring.modulith.bom.get().toString())
+        mavenBom(
+            libs.spring.modulith.bom
+                .get()
+                .toString(),
+        )
     }
 }
 
