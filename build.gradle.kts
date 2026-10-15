@@ -1,10 +1,10 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
-    kotlin("plugin.spring") version "2.3.21"
-    id("org.springframework.boot") version "4.1.1"
-    id("io.spring.dependency-management") version "1.1.7"
-    kotlin("plugin.jpa") version "2.3.21"
-    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.spring)
+    alias(libs.plugins.spring.boot)
+    alias(libs.plugins.spring.dependencyManagement)
+    alias(libs.plugins.kotlin.jpa)
+    alias(libs.plugins.ktlint)
 }
 
 group = "io.fluxion"
@@ -21,38 +21,36 @@ repositories {
     mavenCentral()
 }
 
-extra["springModulithVersion"] = "2.1.1"
-
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
-    implementation("org.springframework.boot:spring-boot-starter-flyway")
-    implementation("org.springframework.boot:spring-boot-starter-webmvc")
-    implementation("org.flywaydb:flyway-database-postgresql")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.springframework.modulith:spring-modulith-starter-core")
-    implementation("org.springframework.modulith:spring-modulith-starter-insight")
-    implementation("org.springframework.modulith:spring-modulith-starter-jpa")
-    implementation("tools.jackson.module:jackson-module-kotlin")
-    developmentOnly("org.springframework.boot:spring-boot-docker-compose")
-    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
-    runtimeOnly("org.postgresql:postgresql")
-    runtimeOnly("org.springframework.modulith:spring-modulith-runtime")
-    testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-flyway-test")
-    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
-    testImplementation("org.springframework.boot:spring-boot-testcontainers")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
-    testImplementation("org.springframework.modulith:spring-modulith-starter-test")
-    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
-    testImplementation("org.testcontainers:testcontainers-postgresql")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    implementation(libs.spring.boot.starterActuator)
+    implementation(libs.spring.boot.starterDataJpa)
+    implementation(libs.spring.boot.starterFlyway)
+    implementation(libs.spring.boot.starterWebmvc)
+    implementation(libs.flyway.databasePostgresql)
+    implementation(libs.kotlin.reflect)
+    implementation(libs.spring.modulith.starterCore)
+    implementation(libs.spring.modulith.starterInsight)
+    implementation(libs.spring.modulith.starterJpa)
+    implementation(libs.jackson.moduleKotlin)
+    developmentOnly(libs.spring.boot.dockerCompose)
+    runtimeOnly(libs.micrometer.registryPrometheus)
+    runtimeOnly(libs.postgresql)
+    runtimeOnly(libs.spring.modulith.runtime)
+    testImplementation(libs.spring.boot.starterActuatorTest)
+    testImplementation(libs.spring.boot.starterDataJpaTest)
+    testImplementation(libs.spring.boot.starterFlywayTest)
+    testImplementation(libs.spring.boot.starterWebmvcTest)
+    testImplementation(libs.spring.boot.testcontainers)
+    testImplementation(libs.kotlin.testJunit5)
+    testImplementation(libs.spring.modulith.starterTest)
+    testImplementation(libs.testcontainers.junitJupiter)
+    testImplementation(libs.testcontainers.postgresql)
+    testRuntimeOnly(libs.junit.platformLauncher)
 }
 
 dependencyManagement {
     imports {
-        mavenBom("org.springframework.modulith:spring-modulith-bom:${property("springModulithVersion")}")
+        mavenBom(libs.spring.modulith.bom.get().toString())
     }
 }
 
@@ -74,5 +72,5 @@ tasks.withType<Test> {
 
 // Rules live in .editorconfig. `ktlintCheck` runs as part of `check`; `ktlintFormat` fixes violations.
 ktlint {
-    version = "1.8.0"
+    version = libs.versions.ktlint.get()
 }
