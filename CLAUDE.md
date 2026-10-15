@@ -29,4 +29,4 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 ## Git / GitHub
 - 흐름: Issue → 설계 논의 → Branch → 구현(개발자) → Test → PR → Review → Merge.
 - 브랜치 전략, 커밋 메시지 규칙(Conventional Commits + 이슈 번호), PR/머지 규칙은 `CONTRIBUTING.md` 참고.
-- `master`는 Squash merge만 허용, 머지 후 브랜치 자동 삭제로 설정되어 있다.
+- `main`은 Squash merge만 허용, 머지 후 브랜치 자동 삭제로 설정되어 있다.
