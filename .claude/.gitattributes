@@ -1,0 +1,2 @@
+# 훅 스크립트는 Git Bash에서 돌므로 체크아웃해도 LF를 유지한다.
+*.sh text eol=lf
