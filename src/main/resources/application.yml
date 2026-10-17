@@ -3,6 +3,9 @@ spring:
     name: fluxion
   jpa:
     open-in-view: false
+  modulith:
+    runtime:
+      flyway-enabled: true
 
 management:
   endpoints:
