@@ -14,7 +14,8 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 
 ## 문서 체계 (과하게 만들지 않기)
 - `README.md`, `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`만 먼저 유지한다.
-- `docs/adr/`, `docs/BLOGGING.md`, `docs/blog/`는 실제로 ADR 또는 블로그 후보가 생겼을 때 그 시점에 만든다. 미리 빈 폴더를 만들지 않는다.
+- `docs/adr/`, `docs/BLOGGING.md`, `docs/blog/`는 실제로 ADR 또는 핵심 사례(블로그) 후보가 확정됐을 때 그 시점에 만든다. 미리 빈 폴더를 만들지 않는다.
+- 포트폴리오 산출물 목표는 `README.md`와 핵심 사례 3~5개(프로젝트 전체)다. 읽는 순서는 README(1~2분) → 핵심 사례(사례당 5분) → 이슈·PR 원본. 원본은 이슈 코멘트에 두고, 수집과 후보 판단은 `.claude/roles/hub.md` 증거 수집 절을 따른다.
 - ADR은 문제, 대안 비교, 선택과 이유, 수용한 단점, 검증 방법 순서로 작성한다.
 
 ## 품질 기준
