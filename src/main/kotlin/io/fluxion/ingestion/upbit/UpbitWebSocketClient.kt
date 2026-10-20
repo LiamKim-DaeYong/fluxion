@@ -1,10 +1,10 @@
 package io.fluxion.ingestion.upbit
 
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.context.SmartLifecycle
 import org.springframework.stereotype.Component
 import tools.jackson.databind.json.JsonMapper
-import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.WebSocket
 import java.nio.ByteBuffer
@@ -15,7 +15,9 @@ import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
 @Component
+@ConditionalOnBooleanProperty("fluxion.ingestion.upbit.enabled", matchIfMissing = true)
 class UpbitWebSocketClient(
+    private val properties: UpbitProperties,
     private val jsonMapper: JsonMapper,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -64,7 +66,7 @@ class UpbitWebSocketClient(
     private fun connect() {
         httpClient
             .newWebSocketBuilder()
-            .buildAsync(UPBIT_WEBSOCKET_URI, UpbitTradeListener(::handleDisconnect, ::handlePong))
+            .buildAsync(properties.uri, UpbitTradeListener(::handleDisconnect, ::handlePong))
             .whenComplete { webSocket, error ->
                 if (error != null) {
                     log.error("Failed to connect to Upbit WebSocket", error)
@@ -84,7 +86,7 @@ class UpbitWebSocketClient(
             jsonMapper.writeValueAsString(
                 listOf(
                     mapOf("ticket" to UUID.randomUUID().toString()),
-                    mapOf("type" to "trade", "codes" to listOf("KRW-BTC")),
+                    mapOf("type" to "trade", "codes" to properties.codes),
                     mapOf("format" to "DEFAULT"),
                 ),
             )
@@ -120,7 +122,7 @@ class UpbitWebSocketClient(
         awaitingPong = false
     }
 
-    // Sends a ping every PING_INTERVAL so Upbit does not close an idle connection.
+    // Sends a ping every ping interval so Upbit does not close an idle connection.
     private fun startPing() {
         val scheduler =
             Executors.newSingleThreadScheduledExecutor(
@@ -132,9 +134,9 @@ class UpbitWebSocketClient(
             )
         scheduler.scheduleAtFixedRate(
             ::sendPing,
-            PING_INTERVAL.toSeconds(),
-            PING_INTERVAL.toSeconds(),
-            TimeUnit.SECONDS,
+            properties.pingInterval.toMillis(),
+            properties.pingInterval.toMillis(),
+            TimeUnit.MILLISECONDS,
         )
         this.scheduler = scheduler
     }
@@ -149,7 +151,7 @@ class UpbitWebSocketClient(
     private fun sendPing() {
         val webSocket = webSocket ?: return
         if (awaitingPong) {
-            log.warn("No pong from Upbit within {}s, dropping the connection", PING_INTERVAL.toSeconds())
+            log.warn("No pong from Upbit within {}ms, dropping the connection", properties.pingInterval.toMillis())
             webSocket.abort()
             handleDisconnect()
             return
@@ -164,8 +166,6 @@ class UpbitWebSocketClient(
     }
 
     companion object {
-        private val UPBIT_WEBSOCKET_URI = URI.create("wss://api.upbit.com/websocket/v1")
-        private val PING_INTERVAL: Duration = Duration.ofSeconds(30)
         private val INITIAL_RECONNECT_DELAY: Duration = Duration.ofSeconds(1)
         private val MAX_RECONNECT_DELAY: Duration = Duration.ofSeconds(30)
     }

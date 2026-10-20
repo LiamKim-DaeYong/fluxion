@@ -14,7 +14,7 @@ import org.springframework.transaction.event.TransactionalEventListener
 import org.springframework.transaction.support.TransactionTemplate
 
 @Import(TestcontainersConfiguration::class, EventPublicationRegistryIntegrationTests.ListenerConfiguration::class)
-@SpringBootTest
+@SpringBootTest(properties = ["fluxion.ingestion.upbit.enabled=false"])
 class EventPublicationRegistryIntegrationTests {
     @Autowired
     lateinit var jdbcTemplate: JdbcTemplate
