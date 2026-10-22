@@ -30,3 +30,11 @@ handoff_role() {
   role="$(cat "$handoff_dir/role" 2>/dev/null)"
   [ -n "$term" ] && { [ "$role" = hub ] || [ "$role" = harness ]; }
 }
+
+# Mailbox 릴레이(mailbox-relay.sh)와 Hub 클라이언트(mb.sh)가 요청을 주고받는 폴더.
+mailbox_dir="$handoff_dir/mailbox"
+# 릴레이가 5초 안에 alive를 갱신했으면 0.
+relay_alive() {
+  local t; t="$(stat -c %Y "$mailbox_dir/alive" 2>/dev/null)" || return 1
+  [ $(( $(date +%s) - t )) -le 5 ]
+}

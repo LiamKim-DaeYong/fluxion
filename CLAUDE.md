@@ -37,7 +37,7 @@ Kafka, Redis, AWS는 실제 문제가 확인된 뒤에만 단계적으로 도입
 
 ## 멀티 세션 하네스
 - 오르카에서 세션을 Hub(사용자와 대화하는 유일한 세션), 고정 모듈(보드 `Always On` 칸, 현재 Harness), 일회성 모듈(`orca orchestration worker-start`로 띄우고 완료 후 release)로 나눠 쓴다.
-- 통신은 orchestration Run 큐로 한다. Run의 coordinator는 입력을 버리는 Mailbox 터미널이라 워커 알림이 Hub 대화에 끼어들지 않는다.
+- 통신은 orchestration Run 큐로 한다. Run의 coordinator는 Mailbox 터미널이라 워커 알림이 Hub 대화에 끼어들지 않는다. Hub는 Mailbox에서 도는 릴레이에 `.claude/hooks/mb.sh`로 명령을 보낸다 (`hub.md` 참고).
 - 역할별 절차는 `.claude/roles/<hub|harness|worker>.md`에 있다. SessionStart 훅(`.claude/hooks/session-start.sh`)이 워크트리 표시 이름으로 역할을 판별해 주입하고, Hub에는 Run ID, Mailbox handle, 안 읽은 메시지 건수도 넣는다.
 - Hub와 Harness는 컨텍스트가 상한(기본 150k 토큰, `HANDOFF_TOKEN_LIMIT`)을 넘으면 작업 단위가 끝날 때 `handoff` 스킬 형식으로 인수인계를 남긴다. 훅이 `/clear`를 보내고 새 세션에 인수인계를 주입한다. Harness는 상한과 별개로 worker_done마다 clear한다 (`harness.md`).
 - Harness는 `CLAUDE.md`와 `.claude/`만 수정한다. 레포 파일은 PR로, 사용자 레벨 설정(`~/.claude`)은 적용 전에 승인을 받는다.
