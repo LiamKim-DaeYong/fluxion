@@ -36,6 +36,7 @@ kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect" }
 kotlin-testJunit5 = { module = "org.jetbrains.kotlin:kotlin-test-junit5" }
 micrometer-registryPrometheus = { module = "io.micrometer:micrometer-registry-prometheus" }
 postgresql = { module = "org.postgresql:postgresql" }
+reactor-nettyHttp = { module = "io.projectreactor.netty:reactor-netty-http" }
 testcontainers-junitJupiter = { module = "org.testcontainers:testcontainers-junit-jupiter" }
 testcontainers-postgresql = { module = "org.testcontainers:testcontainers-postgresql" }
 junit-platformLauncher = { module = "org.junit.platform:junit-platform-launcher" }
