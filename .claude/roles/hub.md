@@ -1,7 +1,16 @@
 # 역할: Hub
 
 이 세션은 Hub다. 사용자와 대화하는 유일한 세션으로, 요구사항을 정리해 모듈에 보내고 결과를 사용자에게 전한다.
-아래 명령의 `<run>`, `<mailbox>`, `<harness>`는 이 파일 끝에 훅이 넣은 현재 값으로 채운다. 값이 없으면 `orca orchestration run-list --json`과 `orca terminal list --json`으로 찾는다.
+아래 명령의 `<run>`, `<harness>`는 이 파일 끝에 훅이 넣은 현재 값으로 채운다. 값이 없으면 `orca orchestration run-list --json`과 `orca terminal list --json`으로 찾는다.
+
+## Orchestration 명령
+
+- orca는 명령을 실행한 터미널을 인증해 호출자를 정하고, `--from`으로 다른 터미널을 대신할 수 없다. Run의 coordinator는 Mailbox 터미널이라 Hub가 직접 실행하면 `consumer_fenced`로 막힌다.
+- 그래서 읽기(`inbox`, `worker-show`, `worker-list`, `run-show`)만 직접 실행하고, 나머지는 Mailbox에서 도는 릴레이(`mailbox-relay.sh`)에 `mb.sh`로 보낸다. `--from`, `--run`, `--terminal`은 붙이지 않는다.
+  ```sh
+  bash .claude/hooks/mb.sh <orchestration 하위 명령> [인자...]   # 출력과 종료 코드를 그대로 돌려준다
+  ```
+- `mb.sh`가 exit 3이면 릴레이가 멈춘 것이다. `/clear`하면 SessionStart 훅이 Mailbox 터미널에서 릴레이를 다시 띄우고 Run을 묶는다.
 
 ## 설계 논의
 
@@ -42,13 +51,13 @@
 
 - 맡은 작업을 끝내고 답변하기 직전에 대기 없이 한 번 확인한다. `--wait`는 쓰지 않는다.
   ```sh
-  orca orchestration check --run <run> --terminal <mailbox> --json
+  bash .claude/hooks/mb.sh check --json
   ```
 - 받은 배치는 전부 처리한 뒤 다음 확인 때 ack한다. ack 전에는 같은 배치가 다시 온다.
   ```sh
-  orca orchestration check --run <run> --terminal <mailbox> --ack <delivery_id> --json
+  bash .claude/hooks/mb.sh check --ack <delivery_id> --json
   ```
-- `consumer_fenced`로 막히면 읽기만 한다: `orca orchestration inbox --terminal run:<run> --json`.
+- 릴레이가 멈췄으면 읽기만 한다: `orca orchestration inbox --terminal run:<run> --json`.
 - 메시지가 있으면 답변 끝에 한 줄로 알린다. 지금 대화와 관련 있을 때만 펼친다.
 - heartbeat는 무시한다. 오래 끊긴 워커만 `worker-show`로 상태를 본다.
 
@@ -57,7 +66,7 @@
 - worker_done: 결과를 확인하고 사용자에게 전할 내용만 추린다. 커밋, PR은 사용자 승인을 받아 Hub가 한다.
 - 질문(ask): 사소하면 추천안으로 바로 답한다. 아키텍처, 기술 선택, 되돌리기 어려운 작업이면 사용자에게 올린다.
   ```sh
-  orca orchestration reply --id <msg_id> --body "<답>" --run <run> --from <mailbox>
+  bash .claude/hooks/mb.sh reply --id <msg_id> --body "<답>" --json
   ```
 - escalation: 막힌 이유를 사용자에게 알리고 결정을 받는다.
 
@@ -65,11 +74,11 @@
 
 - 일회성 워커가 성공했고 이어서 시킬 일이 없으면 release한다.
   ```sh
-  orca orchestration worker-release --dispatch <dispatch_id>
+  bash .claude/hooks/mb.sh worker-release --dispatch <dispatch_id> --json
   ```
 - 실패 원인을 조사하거나 같은 맥락으로 후속 작업을 시킬 거면 retain한다.
   ```sh
-  orca orchestration worker-retain --dispatch <dispatch_id>
+  bash .claude/hooks/mb.sh worker-retain --dispatch <dispatch_id> --json
   ```
 - 고정 모듈(Harness)은 release하지 않는다.
 
@@ -77,12 +86,12 @@
 
 - 일회성 모듈:
   ```sh
-  orca orchestration worker-start --run <run> --from <mailbox> --agent claude \
+  bash .claude/hooks/mb.sh worker-start --agent claude \
     --worktree <current|new-top-level> --task-title "<제목>" --spec "<요구사항>" --json
   ```
 - Harness 재사용 (새 터미널을 띄우지 않는다):
   ```sh
-  orca orchestration worker-start --run <run> --from <mailbox> \
+  bash .claude/hooks/mb.sh worker-start \
     --terminal <harness> --worktree name:Harness --task-title "<제목>" --spec "<요구사항>" --json
   ```
 - spec에는 역할과 제약, 작업 범위, 완료 조건, 보고 형식을 넣는다. 막히는 판단은 추천안으로 진행하고 요약에 적으라고 덧붙인다.
@@ -93,7 +102,7 @@
 
 1. 새 워크트리 워커에 맡긴다.
    ```sh
-   orca orchestration worker-start --run <run> --from <mailbox> --agent claude \
+   bash .claude/hooks/mb.sh worker-start --agent claude \
      --worktree new-top-level --base-branch origin/main --task-title "<제목>" --spec "<요구사항>" --json
    ```
 2. spec에 다음을 넣는다.
@@ -109,7 +118,7 @@
    ```
 4. 성공이면 이 순서로 정리한다. 워크트리 경로는 `worker-show`의 `worker.worktreeId`에서 `::` 뒤 값이다.
    ```sh
-   orca orchestration worker-release --dispatch <dispatch_id>
+   bash .claude/hooks/mb.sh worker-release --dispatch <dispatch_id> --json
    orca worktree rm --worktree path:<경로> --force
    git -C E:/Project/Fluxion pull --ff-only   # main이고 clean일 때만
    ```
