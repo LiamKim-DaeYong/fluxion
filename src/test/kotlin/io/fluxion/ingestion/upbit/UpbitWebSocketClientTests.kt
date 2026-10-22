@@ -1,6 +1,8 @@
 package io.fluxion.ingestion.upbit
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
@@ -10,6 +12,8 @@ import java.time.Duration
 class UpbitWebSocketClientTests {
     private lateinit var server: UpbitTestServer
     private lateinit var client: UpbitWebSocketClient
+
+    private val meterRegistry = SimpleMeterRegistry()
 
     @AfterEach
     fun tearDown() {
@@ -26,6 +30,21 @@ class UpbitWebSocketClientTests {
         assertThat(server.awaitMessage())
             .contains("\"type\":\"trade\"")
             .contains("\"codes\":[\"KRW-BTC\"]")
+    }
+
+    @Test
+    fun `counts each text and binary message`() {
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+
+        server.sendText("""{"type":"trade"}""")
+        server.sendBinary("""{"type":"trade"}""")
+
+        await().atMost(Duration.ofSeconds(5)).untilAsserted {
+            assertThat(meterRegistry.get("fluxion.ingestion.upbit.messages.received").counter().count())
+                .isEqualTo(2.0)
+        }
     }
 
     @Test
@@ -84,6 +103,7 @@ class UpbitWebSocketClientTests {
                     pingInterval = pingInterval,
                 ),
                 JsonMapper(),
+                meterRegistry,
             )
         client.start()
     }

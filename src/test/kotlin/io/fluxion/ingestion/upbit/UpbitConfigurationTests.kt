@@ -1,5 +1,6 @@
 package io.fluxion.ingestion.upbit
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -75,5 +76,8 @@ class UpbitConfigurationTests {
     class PropertiesConfiguration {
         @Bean
         fun jsonMapper() = JsonMapper()
+
+        @Bean
+        fun meterRegistry() = SimpleMeterRegistry()
     }
 }

@@ -1,5 +1,7 @@
 package io.fluxion.ingestion.upbit
 
+import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.context.SmartLifecycle
@@ -19,9 +21,17 @@ import java.util.concurrent.TimeUnit
 class UpbitWebSocketClient(
     private val properties: UpbitProperties,
     private val jsonMapper: JsonMapper,
+    meterRegistry: MeterRegistry,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
     private val httpClient = HttpClient.newHttpClient()
+
+    // Counts complete messages received from Upbit, exported as a Prometheus counter.
+    private val messagesReceived =
+        Counter
+            .builder("fluxion.ingestion.upbit.messages.received")
+            .description("Messages received from the Upbit WebSocket")
+            .register(meterRegistry)
 
     @Volatile
     private var running = false
@@ -66,8 +76,10 @@ class UpbitWebSocketClient(
     private fun connect() {
         httpClient
             .newWebSocketBuilder()
-            .buildAsync(properties.uri, UpbitTradeListener(::handleDisconnect, ::handlePong))
-            .whenComplete { webSocket, error ->
+            .buildAsync(
+                properties.uri,
+                UpbitTradeListener(::handleDisconnect, ::handlePong, messagesReceived::increment),
+            ).whenComplete { webSocket, error ->
                 if (error != null) {
                     log.error("Failed to connect to Upbit WebSocket", error)
                     handleDisconnect()
