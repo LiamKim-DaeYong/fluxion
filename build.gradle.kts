@@ -43,6 +43,7 @@ dependencies {
     testImplementation(libs.spring.boot.testcontainers)
     testImplementation(libs.kotlin.testJunit5)
     testImplementation(libs.spring.modulith.starterTest)
+    testImplementation(libs.reactor.nettyHttp)
     testImplementation(libs.testcontainers.junitJupiter)
     testImplementation(libs.testcontainers.postgresql)
     testRuntimeOnly(libs.junit.platformLauncher)
