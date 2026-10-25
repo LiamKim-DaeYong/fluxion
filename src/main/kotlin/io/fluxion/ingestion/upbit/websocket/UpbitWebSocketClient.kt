@@ -1,7 +1,7 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.websocket
 
-import io.micrometer.core.instrument.Counter
-import io.micrometer.core.instrument.MeterRegistry
+import io.fluxion.ingestion.upbit.UpbitProperties
+import io.fluxion.ingestion.upbit.backfill.UpbitBackfill
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.context.SmartLifecycle
@@ -13,7 +13,6 @@ import java.nio.ByteBuffer
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
-import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -23,19 +22,11 @@ import java.util.concurrent.TimeUnit
 class UpbitWebSocketClient(
     private val properties: UpbitProperties,
     private val jsonMapper: JsonMapper,
-    private val tradeHandler: UpbitTradeHandler,
+    private val messageHandler: UpbitMessageHandler,
     private val backfill: UpbitBackfill,
-    meterRegistry: MeterRegistry,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
     private val httpClient = HttpClient.newHttpClient()
-
-    // Counts complete messages received from Upbit, exported as a Prometheus counter.
-    private val messagesReceived =
-        Counter
-            .builder("fluxion.ingestion.upbit.messages.received")
-            .description("Messages received from the Upbit WebSocket")
-            .register(meterRegistry)
 
     @Volatile
     private var running = false
@@ -52,35 +43,19 @@ class UpbitWebSocketClient(
     @Volatile
     private var scheduler: ScheduledExecutorService? = null
 
-    // A separate thread, so a slow backfill cannot delay pings.
-    @Volatile
-    private var backfillExecutor: ExecutorService? = null
-
     // Null until the first connection opens, so the first connection is not backfilled.
     @Volatile
     private var connectedAt: Instant? = null
 
-    // Called by Spring after the application context is ready.
     override fun start() {
         running = true
         startPing()
-        backfillExecutor =
-            Executors.newSingleThreadExecutor(
-                Thread
-                    .ofPlatform()
-                    .name("upbit-backfill")
-                    .daemon()
-                    .factory(),
-            )
         connect()
     }
 
-    // Called by Spring when the application shuts down.
     override fun stop() {
         running = false
         stopPing()
-        backfillExecutor?.shutdownNow()
-        backfillExecutor = null
         webSocket
             ?.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown")
             ?.orTimeout(5, TimeUnit.SECONDS)
@@ -91,16 +66,14 @@ class UpbitWebSocketClient(
         webSocket = null
     }
 
-    // Tells Spring whether this component is currently started.
     override fun isRunning(): Boolean = running
 
-    // Opens a WebSocket connection to Upbit.
     private fun connect() {
         httpClient
             .newWebSocketBuilder()
             .buildAsync(
                 properties.uri,
-                UpbitTradeListener(::handleDisconnect, ::handlePong, ::handleMessage),
+                UpbitWebSocketListener(::handleDisconnect, ::handlePong, messageHandler::handle),
             ).whenComplete { webSocket, error ->
                 if (error != null) {
                     log.error("Failed to connect to Upbit WebSocket", error)
@@ -119,7 +92,6 @@ class UpbitWebSocketClient(
             }
     }
 
-    // Sends the subscription message right after the connection opens.
     private fun subscribe(webSocket: WebSocket) {
         val message =
             jsonMapper.writeValueAsString(
@@ -142,14 +114,12 @@ class UpbitWebSocketClient(
     // Reads each market's start time before subscribing, so trades from the new connection cannot move it.
     // A market with no trade received yet starts from the previous connection time.
     private fun backfillMissedTrades(lastConnectedAt: Instant) {
-        val executor = backfillExecutor ?: return
         properties.codes.forEach { market ->
-            val since = tradeHandler.lastTradedAt(market) ?: lastConnectedAt
-            executor.execute { backfill.backfill(market, since) }
+            val since = messageHandler.lastTradedAt(market) ?: lastConnectedAt
+            backfill.backfillAsync(market, since)
         }
     }
 
-    // Called by the listener when the connection is closed or fails.
     private fun handleDisconnect() {
         webSocket = null
         if (!running) {
@@ -158,7 +128,6 @@ class UpbitWebSocketClient(
         scheduleReconnect()
     }
 
-    // Waits for the backoff delay, then connects again.
     private fun scheduleReconnect() {
         val delay = reconnectDelay
         reconnectDelay = minOf(delay.multipliedBy(2), MAX_RECONNECT_DELAY)
@@ -166,18 +135,11 @@ class UpbitWebSocketClient(
         scheduler?.schedule(::connect, delay.toSeconds(), TimeUnit.SECONDS)
     }
 
-    // Called by the listener for each complete message.
-    private fun handleMessage(message: String) {
-        messagesReceived.increment()
-        tradeHandler.handle(message)
-    }
-
-    // Called by the listener when Upbit answers our ping.
     private fun handlePong() {
         awaitingPong = false
     }
 
-    // Sends a ping every ping interval so Upbit does not close an idle connection.
+    // Upbit closes idle connections, so ping every ping interval.
     private fun startPing() {
         val scheduler =
             Executors.newSingleThreadScheduledExecutor(
@@ -196,13 +158,12 @@ class UpbitWebSocketClient(
         this.scheduler = scheduler
     }
 
-    // Stops the ping schedule.
     private fun stopPing() {
         scheduler?.shutdownNow()
         scheduler = null
     }
 
-    // Sends one ping frame, or drops the connection if the previous ping got no pong.
+    // A ping without a pong means the connection died without a Close frame, so drop it and reconnect.
     private fun sendPing() {
         val webSocket = webSocket ?: return
         if (awaitingPong) {

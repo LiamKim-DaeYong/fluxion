@@ -1,16 +1,17 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.websocket
 
 import io.fluxion.ingestion.TradeEvent
+import io.fluxion.ingestion.upbit.UpbitFixtures
+import io.fluxion.ingestion.upbit.UpbitFixtures.tick
+import io.fluxion.ingestion.upbit.UpbitFixtures.tradeMessage
+import io.fluxion.ingestion.upbit.UpbitTestServer
+import io.fluxion.ingestion.upbit.backfill.UpbitBackfill
+import io.fluxion.ingestion.upbit.backfill.UpbitTradeClient
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
-import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
-import org.springframework.context.ApplicationEventPublisher
-import org.springframework.transaction.support.TransactionOperations
 import org.springframework.web.client.RestClient
-import tools.jackson.databind.json.JsonMapper
-import tools.jackson.module.kotlin.KotlinModule
 import java.net.ServerSocket
 import java.net.SocketException
 import java.net.URI
@@ -23,16 +24,18 @@ import kotlin.test.fail
 // Runs the client without Spring against a local server that stands in for Upbit.
 class UpbitWebSocketClientTests {
     private lateinit var server: UpbitTestServer
+    private lateinit var backfill: UpbitBackfill
     private lateinit var client: UpbitWebSocketClient
 
     private val meterRegistry = SimpleMeterRegistry()
 
-    // Events the client published, recorded by a fake publisher instead of Spring.
-    private val publishedEvents = LinkedBlockingQueue<Any>()
+    // Trades the client and the backfill published, recorded instead of handed to Spring.
+    private val publishedEvents = LinkedBlockingQueue<TradeEvent>()
 
     @AfterEach
     fun tearDown() {
         client.stop()
+        backfill.stop()
         if (::server.isInitialized) {
             server.close()
         }
@@ -50,51 +53,27 @@ class UpbitWebSocketClientTests {
     }
 
     @Test
-    fun `counts each text and binary message`() {
+    fun `publishes trades from both text and binary frames`() {
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+
+        server.sendText(tradeMessage(id = 1))
+        server.sendBinary(tradeMessage(id = 2))
+
+        assertThat(nextTradeIds(2)).containsExactly("1", "2")
+    }
+
+    @Test
+    fun `keeps receiving after an invalid message`() {
         startClient()
         server.awaitConnection()
         server.awaitMessage()
 
         server.sendText("""{"type":"trade"}""")
-        server.sendBinary("""{"type":"trade"}""")
+        server.sendText(tradeMessage())
 
-        await().atMost(Duration.ofSeconds(5)).untilAsserted {
-            assertThat(meterRegistry.get("fluxion.ingestion.upbit.messages.received").counter().count())
-                .isEqualTo(2.0)
-        }
-    }
-
-    @Test
-    fun `publishes a trade event for a trade message`() {
-        startClient()
-        server.awaitConnection()
-        server.awaitMessage()
-
-        server.sendText(TRADE_MESSAGE)
-
-        val event = publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent
-        assertThat(event.symbol).isEqualTo("KRW-BTC")
-        assertThat(event.tradeId).isEqualTo("1")
-    }
-
-    @Test
-    fun `skips an invalid message and keeps receiving`() {
-        startClient()
-        server.awaitConnection()
-        server.awaitMessage()
-
-        server.sendText("""{"type":"trade"}""")
-        server.sendText(TRADE_MESSAGE)
-
-        // Messages are handled in order, so the invalid one has been counted once the valid one is published.
-        assertThat(publishedEvents.poll(5, TimeUnit.SECONDS)).isInstanceOf(TradeEvent::class.java)
-        assertThat(
-            meterRegistry
-                .get("fluxion.ingestion.upbit.messages.skipped")
-                .tag("reason", "invalid")
-                .counter()
-                .count(),
-        ).isEqualTo(1.0)
+        assertThat(nextTradeIds(1)).containsExactly("1")
     }
 
     @Test
@@ -137,7 +116,7 @@ class UpbitWebSocketClientTests {
         server.awaitConnection()
         server.awaitMessage()
         server.sendText(tradeMessage(id = 1, tradedAt = lastTradedAt))
-        assertThat((publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent).tradeId).isEqualTo("1")
+        assertThat(nextTradeIds(1)).containsExactly("1")
 
         // Missed while disconnected: 3 is newer than the last received trade, 1 is the trade itself.
         server.ticksResponse = "[${tick(id = 3, tradedAt = lastTradedAt.plusSeconds(5))},${tick(id = 1, tradedAt = lastTradedAt)}]"
@@ -146,8 +125,7 @@ class UpbitWebSocketClientTests {
 
         assertThat(server.awaitTicksRequest()).contains("market=KRW-BTC")
         // The trade itself is published again and dropped later by the recorder's ON CONFLICT.
-        val backfilled = List(2) { (publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent).tradeId }
-        assertThat(backfilled).containsExactly("3", "1")
+        assertThat(nextTradeIds(2)).containsExactly("3", "1")
     }
 
     @Test
@@ -223,52 +201,26 @@ class UpbitWebSocketClientTests {
         startClientAt(server.uri, pingInterval, server.restUri)
     }
 
+    // Wires the client the way Spring would and starts the backfill before the client, as Spring does.
     private fun startClientAt(
         uri: URI,
         pingInterval: Duration = Duration.ofSeconds(30),
         restUri: URI = URI.create("http://localhost"),
     ) {
-        val jsonMapper = JsonMapper.builder().addModule(KotlinModule.Builder().build()).build()
-        val events = ApplicationEventPublisher { publishedEvents.add(it) }
-        val properties =
-            UpbitProperties(
-                enabled = true,
-                uri = uri,
-                codes = listOf("KRW-BTC"),
-                pingInterval = pingInterval,
-                backfill =
-                    UpbitProperties.Backfill(
-                        uri = restUri,
-                        requestInterval = Duration.ZERO,
-                        maxGap = Duration.ofHours(1),
-                    ),
-            )
-        val tradeHandler = UpbitTradeHandler(jsonMapper, events, TransactionOperations.withoutTransaction(), meterRegistry)
-        val backfill =
-            UpbitBackfill(properties, UpbitTradeClient(properties, RestClient.builder()), tradeHandler, meterRegistry)
-        client = UpbitWebSocketClient(properties, jsonMapper, tradeHandler, backfill, meterRegistry)
+        val properties = UpbitFixtures.properties(uri, pingInterval, restUri)
+        val tradePublisher = UpbitFixtures.tradePublisher(publishedEvents, meterRegistry)
+        val messageHandler = UpbitMessageHandler(UpbitFixtures.jsonMapper, tradePublisher, meterRegistry)
+        backfill = UpbitBackfill(properties, UpbitTradeClient(properties, RestClient.builder()), tradePublisher, meterRegistry)
+        client = UpbitWebSocketClient(properties, UpbitFixtures.jsonMapper, messageHandler, backfill)
+        backfill.start()
         client.start()
     }
 
+    // Waits for the next published trades and returns their ids in publish order.
+    private fun nextTradeIds(count: Int): List<String> =
+        List(count) { (publishedEvents.poll(5, TimeUnit.SECONDS) ?: fail("No trade published within 5s")).tradeId }
+
     companion object {
-        private const val TRADE_MESSAGE =
-            """{"type":"trade","code":"KRW-BTC","trade_price":1.0,"trade_volume":1.0,""" +
-                """"ask_bid":"BID","trade_timestamp":1,"sequential_id":1}"""
-
-        private fun tradeMessage(
-            id: Long,
-            tradedAt: Instant,
-        ): String =
-            """{"type":"trade","code":"KRW-BTC","trade_price":1.0,"trade_volume":1.0,""" +
-                """"ask_bid":"BID","trade_timestamp":${tradedAt.toEpochMilli()},"sequential_id":$id}"""
-
-        private fun tick(
-            id: Long,
-            tradedAt: Instant,
-        ): String =
-            """{"market":"KRW-BTC","timestamp":${tradedAt.toEpochMilli()},"trade_price":1.0,""" +
-                """"trade_volume":1.0,"ask_bid":"BID","sequential_id":$id}"""
-
         private val NOT_FOUND = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()
     }
 }

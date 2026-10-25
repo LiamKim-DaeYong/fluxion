@@ -1,21 +1,28 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.backfill
 
+import io.fluxion.ingestion.upbit.UpbitProperties
+import io.fluxion.ingestion.upbit.UpbitTradePublisher
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
+import org.springframework.context.SmartLifecycle
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClientException
 import java.time.Instant
 import java.time.temporal.ChronoUnit
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 // Fetches trades missed while the WebSocket was disconnected and publishes them like live trades.
 @Component
+@ConditionalOnBooleanProperty("fluxion.ingestion.upbit.enabled", matchIfMissing = true)
 class UpbitBackfill(
     private val properties: UpbitProperties,
     private val tradeClient: UpbitTradeClient,
-    private val tradeHandler: UpbitTradeHandler,
+    private val tradePublisher: UpbitTradePublisher,
     private val meterRegistry: MeterRegistry,
-) {
+) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
 
     private val tradesPublished =
@@ -23,6 +30,36 @@ class UpbitBackfill(
             .builder("fluxion.ingestion.upbit.backfill.trades")
             .description("Trades published by the Upbit backfill")
             .register(meterRegistry)
+
+    // A separate thread, so a slow backfill cannot delay WebSocket pings.
+    @Volatile
+    private var executor: ExecutorService? = null
+
+    override fun start() {
+        executor =
+            Executors.newSingleThreadExecutor(
+                Thread
+                    .ofPlatform()
+                    .name("upbit-backfill")
+                    .daemon()
+                    .factory(),
+            )
+    }
+
+    override fun stop() {
+        executor?.shutdownNow()
+        executor = null
+    }
+
+    override fun isRunning(): Boolean = executor != null
+
+    // Runs the backfill on the backfill thread. Does nothing when stopped.
+    fun backfillAsync(
+        market: String,
+        since: Instant,
+    ) {
+        executor?.execute { backfill(market, since) }
+    }
 
     // Never throws.
     fun backfill(
@@ -62,7 +99,7 @@ class UpbitBackfill(
             val page = tradeClient.fetchTicks(market, cursor, daysAgo)
             // sequential_id does not follow trade order, so compare timestamps.
             val wanted = page.filter { it.timestamp >= from.toEpochMilli() }
-            wanted.forEach { tradeHandler.publish(it.toEvent(Instant.now())) }
+            wanted.forEach { tradePublisher.publish(it.toEvent(Instant.now())) }
             tradesPublished.increment(wanted.size.toDouble())
             published += wanted.size
 
