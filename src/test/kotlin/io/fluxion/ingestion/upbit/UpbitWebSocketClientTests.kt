@@ -1,11 +1,15 @@
 package io.fluxion.ingestion.upbit
 
+import io.fluxion.ingestion.TradeEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.springframework.context.ApplicationEventPublisher
+import org.springframework.transaction.support.TransactionOperations
 import tools.jackson.databind.json.JsonMapper
+import tools.jackson.module.kotlin.KotlinModule
 import java.net.ServerSocket
 import java.net.SocketException
 import java.net.URI
@@ -20,6 +24,9 @@ class UpbitWebSocketClientTests {
     private lateinit var client: UpbitWebSocketClient
 
     private val meterRegistry = SimpleMeterRegistry()
+
+    // Events the client published, recorded by a fake publisher instead of Spring.
+    private val publishedEvents = LinkedBlockingQueue<Any>()
 
     @AfterEach
     fun tearDown() {
@@ -53,6 +60,39 @@ class UpbitWebSocketClientTests {
             assertThat(meterRegistry.get("fluxion.ingestion.upbit.messages.received").counter().count())
                 .isEqualTo(2.0)
         }
+    }
+
+    @Test
+    fun `publishes a trade event for a trade message`() {
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+
+        server.sendText(TRADE_MESSAGE)
+
+        val event = publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent
+        assertThat(event.symbol).isEqualTo("KRW-BTC")
+        assertThat(event.tradeId).isEqualTo("1")
+    }
+
+    @Test
+    fun `skips an invalid message and keeps receiving`() {
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+
+        server.sendText("""{"type":"trade"}""")
+        server.sendText(TRADE_MESSAGE)
+
+        // Messages are handled in order, so the invalid one has been counted once the valid one is published.
+        assertThat(publishedEvents.poll(5, TimeUnit.SECONDS)).isInstanceOf(TradeEvent::class.java)
+        assertThat(
+            meterRegistry
+                .get("fluxion.ingestion.upbit.messages.skipped")
+                .tag("reason", "invalid")
+                .counter()
+                .count(),
+        ).isEqualTo(1.0)
     }
 
     @Test
@@ -156,6 +196,8 @@ class UpbitWebSocketClientTests {
         uri: URI,
         pingInterval: Duration = Duration.ofSeconds(30),
     ) {
+        val jsonMapper = JsonMapper.builder().addModule(KotlinModule.Builder().build()).build()
+        val events = ApplicationEventPublisher { publishedEvents.add(it) }
         client =
             UpbitWebSocketClient(
                 UpbitProperties(
@@ -164,13 +206,18 @@ class UpbitWebSocketClientTests {
                     codes = listOf("KRW-BTC"),
                     pingInterval = pingInterval,
                 ),
-                JsonMapper(),
+                jsonMapper,
+                UpbitTradeHandler(jsonMapper, events, TransactionOperations.withoutTransaction(), meterRegistry),
                 meterRegistry,
             )
         client.start()
     }
 
     companion object {
+        private const val TRADE_MESSAGE =
+            """{"type":"trade","code":"KRW-BTC","trade_price":1.0,"trade_volume":1.0,""" +
+                """"ask_bid":"BID","trade_timestamp":1,"sequential_id":1}"""
+
         private val NOT_FOUND = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()
     }
 }

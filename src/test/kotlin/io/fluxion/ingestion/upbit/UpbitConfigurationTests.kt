@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.transaction.support.TransactionOperations
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.time.Duration
@@ -15,7 +16,11 @@ import java.time.Duration
 class UpbitConfigurationTests {
     private val contextRunner =
         ApplicationContextRunner()
-            .withUserConfiguration(PropertiesConfiguration::class.java, UpbitWebSocketClient::class.java)
+            .withUserConfiguration(
+                PropertiesConfiguration::class.java,
+                UpbitTradeHandler::class.java,
+                UpbitWebSocketClient::class.java,
+            )
 
     @Test
     fun `registers the client when enabled is not set`() {
@@ -79,5 +84,9 @@ class UpbitConfigurationTests {
 
         @Bean
         fun meterRegistry() = SimpleMeterRegistry()
+
+        // Lets the trade handler run without a real transaction manager.
+        @Bean
+        fun transactionOperations(): TransactionOperations = TransactionOperations.withoutTransaction()
     }
 }
