@@ -41,7 +41,7 @@ flowchart LR
 | 이벤트 발행 레지스트리 | 완료 | Spring Modulith가 모듈 간 이벤트 전달 기록을 남기는 `event_publication` 테이블을 Flyway로 관리, Testcontainers 통합 테스트 | [#19](https://github.com/LiamKim-DaeYong/fluxion/issues/19) |
 | 업비트 체결 수신 | 완료 | 체결 구독, ping으로 연결 유지(30초), 지수 백오프 재연결(1초~30초), 응답 없는 연결 감지. 로컬 WebSocket 테스트 서버로 자동화 테스트 | [#23](https://github.com/LiamKim-DaeYong/fluxion/issues/23), [#28](https://github.com/LiamKim-DaeYong/fluxion/pull/28) |
 | 관측성 | 완료 | Actuator 메트릭, Prometheus 수집, Grafana 대시보드 | [#6](https://github.com/LiamKim-DaeYong/fluxion/issues/6), [#8](https://github.com/LiamKim-DaeYong/fluxion/issues/8) |
-| 수신 메트릭과 처리량 측정 | 진행 중 | 수신 메시지 수 Counter, 초당 체결 수 측정 | [#23](https://github.com/LiamKim-DaeYong/fluxion/issues/23) |
+| 수신 메트릭과 처리량 측정 | 완료 | 수신 메시지 수 Counter, 초당 체결 수 측정 | [#23](https://github.com/LiamKim-DaeYong/fluxion/issues/23) |
 | 구독 실패 감지 | 예정 | 구독 요청이 거부되었으나 WebSocket 연결은 유지되는 상황을 감지 | [#31](https://github.com/LiamKim-DaeYong/fluxion/issues/31) |
 | 종료 시 연결 정리 | 예정 | 애플리케이션 종료 시 진행 중인 연결 시도를 안전하게 정리 | [#30](https://github.com/LiamKim-DaeYong/fluxion/issues/30) |
 | 체결 이벤트 발행과 저장 | 예정 | `ingestion` → `marketdata` 이벤트, PostgreSQL 저장 | |

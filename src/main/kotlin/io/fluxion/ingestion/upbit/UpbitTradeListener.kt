@@ -10,6 +10,7 @@ import java.util.concurrent.CompletionStage
 class UpbitTradeListener(
     private val onDisconnected: () -> Unit,
     private val onPongReceived: () -> Unit,
+    private val onMessageReceived: () -> Unit,
 ) : WebSocket.Listener {
     private val log = LoggerFactory.getLogger(javaClass)
     private val textBuffer = StringBuilder()
@@ -84,6 +85,7 @@ class UpbitTradeListener(
 
     // Handles one complete message assembled from fragments.
     private fun handleMessage(message: String) {
+        onMessageReceived()
         log.info("Upbit message: {}", message)
     }
 }

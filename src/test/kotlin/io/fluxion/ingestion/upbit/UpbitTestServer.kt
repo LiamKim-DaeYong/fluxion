@@ -2,6 +2,7 @@ package io.fluxion.ingestion.upbit
 
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame
 import org.reactivestreams.Publisher
+import reactor.core.publisher.Mono
 import reactor.netty.DisposableServer
 import reactor.netty.http.server.HttpServer
 import reactor.netty.http.server.WebsocketServerSpec
@@ -73,6 +74,27 @@ class UpbitTestServer(
     fun awaitMessage(timeout: Duration = Duration.ofSeconds(5)): String =
         receivedMessages.poll(timeout.toMillis(), TimeUnit.MILLISECONDS)
             ?: fail("No message from the client within $timeout")
+
+    // Sends a text frame on the current connection.
+    fun sendText(message: String) {
+        currentConnection
+            ?.sendString(Mono.just(message))
+            ?.then()
+            ?.block(Duration.ofSeconds(5))
+    }
+
+    // Sends a binary frame on the current connection, as Upbit does for trade messages.
+    fun sendBinary(message: String) {
+        currentConnection
+            ?.sendByteArray(Mono.just(message.toByteArray()))
+            ?.then()
+            ?.block(Duration.ofSeconds(5))
+    }
+
+    // Closes the TCP connection without a Close frame, as a network failure or a crashed server would.
+    fun dropConnection() {
+        currentConnection?.withConnection { it.channel().close().syncUninterruptibly() }
+    }
 
     // Closes the current connection from the server side, as Upbit would.
     fun closeConnection() {
