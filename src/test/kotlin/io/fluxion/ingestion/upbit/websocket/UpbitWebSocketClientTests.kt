@@ -1,6 +1,7 @@
 package io.fluxion.ingestion.upbit.websocket
 
 import io.fluxion.ingestion.TradeEvent
+import io.fluxion.ingestion.TradeHistory
 import io.fluxion.ingestion.upbit.UpbitFixtures
 import io.fluxion.ingestion.upbit.UpbitFixtures.tick
 import io.fluxion.ingestion.upbit.UpbitFixtures.tradeMessage
@@ -31,6 +32,25 @@ class UpbitWebSocketClientTests {
 
     // Trades the client and the backfill published, recorded instead of handed to Spring.
     private val publishedEvents = LinkedBlockingQueue<TradeEvent>()
+
+    // Last stored trade time by market, standing in for the trade table. Empty means a fresh database.
+    private val storedTradeTimes = mutableMapOf<String, Instant>()
+
+    // Makes the stored trade lookup fail, standing in for a database error at startup.
+    private var tradeHistoryFails = false
+
+    private val tradeHistory =
+        object : TradeHistory {
+            override fun lastTradedAt(
+                venue: String,
+                symbol: String,
+            ): Instant? {
+                if (tradeHistoryFails) {
+                    throw IllegalStateException("database unavailable")
+                }
+                return storedTradeTimes[symbol]
+            }
+        }
 
     @AfterEach
     fun tearDown() {
@@ -101,11 +121,37 @@ class UpbitWebSocketClientTests {
     }
 
     @Test
-    fun `does not backfill on the first connection`() {
+    fun `does not backfill on the first connection when no trade is stored`() {
         startClient()
         server.awaitConnection()
         server.awaitMessage()
 
+        server.assertNoTicksRequest(Duration.ofSeconds(1))
+    }
+
+    @Test
+    fun `backfills trades since the last stored trade on the first connection`() {
+        val lastStoredAt = Instant.now().minusSeconds(60)
+        storedTradeTimes["KRW-BTC"] = lastStoredAt
+        // Missed while the application was down: 2 is newer than the last stored trade, 1 is the trade itself.
+        server = UpbitTestServer()
+        server.ticksResponse = "[${tick(id = 2, tradedAt = lastStoredAt.plusSeconds(5))},${tick(id = 1, tradedAt = lastStoredAt)}]"
+        startClientAt(server.uri, restUri = server.restUri)
+
+        server.awaitConnection()
+
+        assertThat(server.awaitTicksRequest()).contains("market=KRW-BTC")
+        assertThat(nextTradeIds(2)).containsExactly("2", "1")
+    }
+
+    @Test
+    fun `subscribes without a restart backfill when the stored trades cannot be read`() {
+        storedTradeTimes["KRW-BTC"] = Instant.now().minusSeconds(60)
+        tradeHistoryFails = true
+        startClient()
+        server.awaitConnection()
+
+        assertThat(server.awaitMessage()).contains("\"type\":\"trade\"")
         server.assertNoTicksRequest(Duration.ofSeconds(1))
     }
 
@@ -211,7 +257,7 @@ class UpbitWebSocketClientTests {
         val tradePublisher = UpbitFixtures.tradePublisher(publishedEvents, meterRegistry)
         val messageHandler = UpbitMessageHandler(UpbitFixtures.jsonMapper, tradePublisher, meterRegistry)
         backfill = UpbitBackfill(properties, UpbitTradeClient(properties, RestClient.builder()), tradePublisher, meterRegistry)
-        client = UpbitWebSocketClient(properties, UpbitFixtures.jsonMapper, messageHandler, backfill)
+        client = UpbitWebSocketClient(properties, UpbitFixtures.jsonMapper, messageHandler, backfill, tradeHistory)
         backfill.start()
         client.start()
     }
