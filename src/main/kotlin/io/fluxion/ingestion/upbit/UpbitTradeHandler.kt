@@ -10,6 +10,7 @@ import org.springframework.transaction.support.TransactionOperations
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.json.JsonMapper
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 // Turns raw Upbit messages into TradeEvents and publishes them to other modules.
 @Component
@@ -25,9 +26,21 @@ class UpbitTradeHandler(
     private val invalidMessages = skippedCounter(meterRegistry, "invalid")
     private val publishFailures = skippedCounter(meterRegistry, "publish_failed")
 
+    // Trade time of the last trade received over the WebSocket, by market. The backfill starts from here.
+    private val lastTradeTimes = ConcurrentHashMap<String, Instant>()
+
     // Never throws, so one bad message cannot break the WebSocket connection.
     fun handle(message: String) {
         val event = toEvent(message) ?: return
+        lastTradeTimes[event.symbol] = event.tradedAt
+        publish(event)
+    }
+
+    // Returns null when no trade of the market has been received yet.
+    fun lastTradedAt(market: String): Instant? = lastTradeTimes[market]
+
+    // Also used by the backfill. Never throws.
+    fun publish(event: TradeEvent) {
         try {
             // The event publication registry stores the event as part of this transaction.
             transactions.executeWithoutResult { events.publishEvent(event) }

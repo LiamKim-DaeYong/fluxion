@@ -27,20 +27,20 @@ data class UpbitTrade(
             tradeId = sequentialId.toString(),
             price = tradePrice,
             quantity = tradeVolume,
-            side = side(),
+            side = side(askBid),
             tradedAt = Instant.ofEpochMilli(tradeTimestamp),
             receivedAt = receivedAt,
         )
 
-    // ASK means the taker sold into a buy order, BID means the taker bought.
-    private fun side(): TradeSide =
-        when (askBid) {
-            "ASK" -> TradeSide.SELL
-            "BID" -> TradeSide.BUY
-            else -> throw IllegalArgumentException("Unknown ask_bid: $askBid")
-        }
-
     companion object {
         const val VENUE = "UPBIT"
+
+        // ASK means the taker sold into a buy order, BID means the taker bought.
+        fun side(askBid: String): TradeSide =
+            when (askBid) {
+                "ASK" -> TradeSide.SELL
+                "BID" -> TradeSide.BUY
+                else -> throw IllegalArgumentException("Unknown ask_bid: $askBid")
+            }
     }
 }

@@ -11,7 +11,9 @@ import java.net.http.HttpClient
 import java.net.http.WebSocket
 import java.nio.ByteBuffer
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -22,6 +24,7 @@ class UpbitWebSocketClient(
     private val properties: UpbitProperties,
     private val jsonMapper: JsonMapper,
     private val tradeHandler: UpbitTradeHandler,
+    private val backfill: UpbitBackfill,
     meterRegistry: MeterRegistry,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -49,10 +52,26 @@ class UpbitWebSocketClient(
     @Volatile
     private var scheduler: ScheduledExecutorService? = null
 
+    // A separate thread, so a slow backfill cannot delay pings.
+    @Volatile
+    private var backfillExecutor: ExecutorService? = null
+
+    // Null until the first connection opens, so the first connection is not backfilled.
+    @Volatile
+    private var connectedAt: Instant? = null
+
     // Called by Spring after the application context is ready.
     override fun start() {
         running = true
         startPing()
+        backfillExecutor =
+            Executors.newSingleThreadExecutor(
+                Thread
+                    .ofPlatform()
+                    .name("upbit-backfill")
+                    .daemon()
+                    .factory(),
+            )
         connect()
     }
 
@@ -60,6 +79,8 @@ class UpbitWebSocketClient(
     override fun stop() {
         running = false
         stopPing()
+        backfillExecutor?.shutdownNow()
+        backfillExecutor = null
         webSocket
             ?.sendClose(WebSocket.NORMAL_CLOSURE, "shutdown")
             ?.orTimeout(5, TimeUnit.SECONDS)
@@ -89,6 +110,11 @@ class UpbitWebSocketClient(
                 awaitingPong = false
                 this.webSocket = webSocket
                 reconnectDelay = INITIAL_RECONNECT_DELAY
+                val lastConnectedAt = connectedAt
+                connectedAt = Instant.now()
+                if (lastConnectedAt != null) {
+                    backfillMissedTrades(lastConnectedAt)
+                }
                 subscribe(webSocket)
             }
     }
@@ -111,6 +137,16 @@ class UpbitWebSocketClient(
                 log.error("Failed to send Upbit subscription", error)
                 null
             }
+    }
+
+    // Reads each market's start time before subscribing, so trades from the new connection cannot move it.
+    // A market with no trade received yet starts from the previous connection time.
+    private fun backfillMissedTrades(lastConnectedAt: Instant) {
+        val executor = backfillExecutor ?: return
+        properties.codes.forEach { market ->
+            val since = tradeHandler.lastTradedAt(market) ?: lastConnectedAt
+            executor.execute { backfill.backfill(market, since) }
+        }
     }
 
     // Called by the listener when the connection is closed or fails.

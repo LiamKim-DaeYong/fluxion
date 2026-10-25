@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.support.TransactionOperations
+import org.springframework.web.client.RestClient
 import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.time.Duration
@@ -19,6 +20,8 @@ class UpbitConfigurationTests {
             .withUserConfiguration(
                 PropertiesConfiguration::class.java,
                 UpbitTradeHandler::class.java,
+                UpbitTradeClient::class.java,
+                UpbitBackfill::class.java,
                 UpbitWebSocketClient::class.java,
             )
 
@@ -55,6 +58,9 @@ class UpbitConfigurationTests {
                 assertThat(properties.uri).isEqualTo(URI.create("wss://api.upbit.com/websocket/v1"))
                 assertThat(properties.codes).containsExactly("KRW-BTC")
                 assertThat(properties.pingInterval).isEqualTo(Duration.ofSeconds(30))
+                assertThat(properties.backfill.uri).isEqualTo(URI.create("https://api.upbit.com"))
+                assertThat(properties.backfill.requestInterval).isEqualTo(Duration.ofMillis(200))
+                assertThat(properties.backfill.maxGap).isEqualTo(Duration.ofHours(1))
             }
     }
 
@@ -66,6 +72,9 @@ class UpbitConfigurationTests {
                 "fluxion.ingestion.upbit.uri=ws://localhost:8080/websocket/v1",
                 "fluxion.ingestion.upbit.codes=KRW-BTC,KRW-ETH",
                 "fluxion.ingestion.upbit.ping-interval=10s",
+                "fluxion.ingestion.upbit.backfill.uri=http://localhost:8080",
+                "fluxion.ingestion.upbit.backfill.request-interval=1s",
+                "fluxion.ingestion.upbit.backfill.max-gap=10m",
             ).run { context ->
                 val properties = context.getBean(UpbitProperties::class.java)
 
@@ -73,6 +82,9 @@ class UpbitConfigurationTests {
                 assertThat(properties.uri).isEqualTo(URI.create("ws://localhost:8080/websocket/v1"))
                 assertThat(properties.codes).containsExactly("KRW-BTC", "KRW-ETH")
                 assertThat(properties.pingInterval).isEqualTo(Duration.ofSeconds(10))
+                assertThat(properties.backfill.uri).isEqualTo(URI.create("http://localhost:8080"))
+                assertThat(properties.backfill.requestInterval).isEqualTo(Duration.ofSeconds(1))
+                assertThat(properties.backfill.maxGap).isEqualTo(Duration.ofMinutes(10))
             }
     }
 
@@ -84,6 +96,9 @@ class UpbitConfigurationTests {
 
         @Bean
         fun meterRegistry() = SimpleMeterRegistry()
+
+        @Bean
+        fun restClientBuilder(): RestClient.Builder = RestClient.builder()
 
         // Lets the trade handler run without a real transaction manager.
         @Bean

@@ -26,6 +26,13 @@ class UpbitTestServer(
     @Volatile
     private var currentConnection: WebsocketOutbound? = null
 
+    // Request URIs of the recent trades REST API the backfill called.
+    private val ticksRequests = LinkedBlockingQueue<String>()
+
+    // Body the recent trades REST API answers with.
+    @Volatile
+    var ticksResponse = "[]"
+
     // Starts on localhost with a free port. handlePing(true) passes pings to the handler instead of answering them.
     private val server: DisposableServer =
         HttpServer
@@ -33,15 +40,22 @@ class UpbitTestServer(
             .host("localhost")
             .port(0)
             .route { routes ->
-                routes.ws(
-                    PATH,
-                    ::handle,
-                    WebsocketServerSpec.builder().handlePing(!answerPings).build(),
-                )
+                routes
+                    .ws(
+                        PATH,
+                        ::handle,
+                        WebsocketServerSpec.builder().handlePing(!answerPings).build(),
+                    ).get(TICKS_PATH) { request, response ->
+                        ticksRequests.add(request.uri())
+                        response.header("Content-Type", "application/json").sendString(Mono.just(ticksResponse))
+                    }
             }.bindNow()
 
     val uri: URI
         get() = URI.create("ws://localhost:${server.port()}$PATH")
+
+    val restUri: URI
+        get() = URI.create("http://localhost:${server.port()}")
 
     // Called by Reactor Netty for each new connection. The connection stays open until the returned publisher completes.
     private fun handle(
@@ -74,6 +88,18 @@ class UpbitTestServer(
     fun awaitMessage(timeout: Duration = Duration.ofSeconds(5)): String =
         receivedMessages.poll(timeout.toMillis(), TimeUnit.MILLISECONDS)
             ?: fail("No message from the client within $timeout")
+
+    // Blocks until the backfill calls the recent trades REST API and returns the request URI.
+    fun awaitTicksRequest(timeout: Duration = Duration.ofSeconds(5)): String =
+        ticksRequests.poll(timeout.toMillis(), TimeUnit.MILLISECONDS)
+            ?: fail("No recent trades request within $timeout")
+
+    // Fails if the backfill calls the recent trades REST API within the given time.
+    fun assertNoTicksRequest(within: Duration) {
+        ticksRequests.poll(within.toMillis(), TimeUnit.MILLISECONDS)?.let {
+            fail("Unexpected recent trades request within $within: $it")
+        }
+    }
 
     // Sends a text frame on the current connection.
     fun sendText(message: String) {
@@ -109,5 +135,6 @@ class UpbitTestServer(
 
     companion object {
         private const val PATH = "/websocket/v1"
+        private const val TICKS_PATH = "/v1/trades/ticks"
     }
 }
