@@ -1,32 +1,32 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.websocket
 
 import io.fluxion.ingestion.TradeEvent
+import io.fluxion.ingestion.upbit.Upbit
 import tools.jackson.databind.PropertyNamingStrategies
 import tools.jackson.databind.annotation.JsonNaming
 import java.math.BigDecimal
 import java.time.Instant
 
-// One trade from the Upbit recent trades REST API (GET /v1/trades/ticks).
-// Field names differ from the WebSocket message: market instead of code, timestamp instead of trade_timestamp.
-// sequential_id is the same value the WebSocket sends for the same trade (#41).
+// One trade message from the Upbit WebSocket. Fields we do not use are ignored.
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy::class)
-data class UpbitTradeTick(
-    val market: String,
-    val timestamp: Long,
+data class UpbitTrade(
+    val type: String,
+    val code: String,
     val tradePrice: BigDecimal,
     val tradeVolume: BigDecimal,
     val askBid: String,
+    val tradeTimestamp: Long,
     val sequentialId: Long,
 ) {
     fun toEvent(receivedAt: Instant): TradeEvent =
         TradeEvent(
-            venue = UpbitTrade.VENUE,
-            symbol = market,
+            venue = Upbit.VENUE,
+            symbol = code,
             tradeId = sequentialId.toString(),
             price = tradePrice,
             quantity = tradeVolume,
-            side = UpbitTrade.side(askBid),
-            tradedAt = Instant.ofEpochMilli(timestamp),
+            side = Upbit.side(askBid),
+            tradedAt = Instant.ofEpochMilli(tradeTimestamp),
             receivedAt = receivedAt,
         )
 }

@@ -1,8 +1,13 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.backfill
 
 import io.fluxion.ingestion.TradeEvent
+import io.fluxion.ingestion.upbit.UpbitFixtures
+import io.fluxion.ingestion.upbit.UpbitFixtures.TICKS_URL
+import io.fluxion.ingestion.upbit.UpbitFixtures.counterValue
+import io.fluxion.ingestion.upbit.UpbitFixtures.tick
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.http.HttpStatus
@@ -11,46 +16,23 @@ import org.springframework.test.web.client.MockRestServiceServer
 import org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo
 import org.springframework.test.web.client.response.MockRestResponseCreators.withStatus
 import org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess
-import org.springframework.transaction.support.TransactionOperations
 import org.springframework.web.client.RestClient
-import tools.jackson.databind.json.JsonMapper
-import tools.jackson.module.kotlin.KotlinModule
-import java.net.URI
 import java.time.Duration
 import java.time.Instant
 
 // Drives the backfill against a mock Upbit server and checks which trades it publishes.
 class UpbitBackfillTests {
-    private val jsonMapper = JsonMapper.builder().addModule(KotlinModule.Builder().build()).build()
     private val meterRegistry = SimpleMeterRegistry()
     private val published = mutableListOf<TradeEvent>()
     private val restClientBuilder = RestClient.builder()
     private val server = MockRestServiceServer.bindTo(restClientBuilder).build()
-
-    private val properties =
-        UpbitProperties(
-            enabled = true,
-            uri = URI.create("ws://localhost"),
-            codes = listOf("KRW-BTC"),
-            pingInterval = Duration.ofSeconds(30),
-            backfill =
-                UpbitProperties.Backfill(
-                    uri = URI.create("https://api.upbit.com"),
-                    requestInterval = Duration.ZERO,
-                    maxGap = Duration.ofHours(1),
-                ),
-        )
+    private val properties = UpbitFixtures.properties()
 
     private val backfill =
         UpbitBackfill(
             properties,
             UpbitTradeClient(properties, restClientBuilder),
-            UpbitTradeHandler(
-                jsonMapper,
-                { event -> published.add(event as TradeEvent) },
-                TransactionOperations.withoutTransaction(),
-                meterRegistry,
-            ),
+            UpbitFixtures.tradePublisher(published, meterRegistry),
             meterRegistry,
         )
 
@@ -95,7 +77,7 @@ class UpbitBackfillTests {
     @Test
     fun `stops without throwing when upbit fails`() {
         server
-            .expect(requestTo("$TICKS?market=KRW-BTC&count=500"))
+            .expect(requestTo("$TICKS_URL?market=KRW-BTC&count=500"))
             .andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR))
 
         val result = backfill.backfill("KRW-BTC", since = at("09:00:00"), now = at("09:01:00"))
@@ -104,43 +86,46 @@ class UpbitBackfillTests {
         assertThat(runs("failed")).isEqualTo(1.0)
     }
 
+    @Test
+    fun `runs on the backfill thread and leaves no thread after stop`() {
+        // A trade older than since ends the backfill after one request, whatever the current time is.
+        expectPage("", ticks(Instant.EPOCH to 1L))
+        backfill.start()
+
+        backfill.backfillAsync("KRW-BTC", since = Instant.now())
+        await().atMost(Duration.ofSeconds(5)).ignoreExceptions().untilAsserted {
+            assertThat(runs("completed")).isEqualTo(1.0)
+        }
+        backfill.stop()
+
+        await().atMost(Duration.ofSeconds(5)).until {
+            Thread.getAllStackTraces().keys.none { it.name == "upbit-backfill" }
+        }
+    }
+
     private fun expectPage(
         query: String,
         body: String,
     ) {
         server
-            .expect(requestTo("$TICKS?market=KRW-BTC&count=500$query"))
+            .expect(requestTo("$TICKS_URL?market=KRW-BTC&count=500$query"))
             .andRespond(withSuccess(body, MediaType.APPLICATION_JSON))
     }
 
-    private fun runs(result: String): Double =
-        meterRegistry
-            .get("fluxion.ingestion.upbit.backfill.runs")
-            .tag("result", result)
-            .counter()
-            .count()
+    private fun runs(result: String): Double = meterRegistry.counterValue("fluxion.ingestion.upbit.backfill.runs", "result", result)
 
     companion object {
-        private const val TICKS = "https://api.upbit.com/v1/trades/ticks"
-
         private fun at(
             time: String,
             day: Int = 25,
         ): Instant = Instant.parse("2026-10-${day}T${time}Z")
 
         // Newest first, like the real API.
-        private fun ticks(vararg trades: Pair<Instant, Long>): String = trades.joinToString(",", "[", "]") { (time, id) -> tick(time, id) }
+        private fun ticks(vararg trades: Pair<Instant, Long>): String = trades.joinToString(",", "[", "]") { (time, id) -> tick(id, time) }
 
         private fun fullPage(
             startId: Long,
             at: Instant,
-        ): String = (0 until UpbitTradeClient.PAGE_SIZE).joinToString(",", "[", "]") { tick(at, startId + it) }
-
-        private fun tick(
-            time: Instant,
-            id: Long,
-        ): String =
-            """{"market":"KRW-BTC","timestamp":${time.toEpochMilli()},"trade_price":1.0,""" +
-                """"trade_volume":1.0,"ask_bid":"BID","sequential_id":$id}"""
+        ): String = (0 until UpbitTradeClient.PAGE_SIZE).joinToString(",", "[", "]") { tick(startId + it, at) }
     }
 }

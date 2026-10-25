@@ -1,5 +1,7 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.backfill
 
+import io.fluxion.ingestion.upbit.UpbitProperties
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBooleanProperty
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 import org.springframework.web.client.body
@@ -7,6 +9,7 @@ import java.util.Optional
 
 // Calls the Upbit recent trades REST API. One call returns one page, newest first.
 @Component
+@ConditionalOnBooleanProperty("fluxion.ingestion.upbit.enabled", matchIfMissing = true)
 class UpbitTradeClient(
     properties: UpbitProperties,
     restClientBuilder: RestClient.Builder,

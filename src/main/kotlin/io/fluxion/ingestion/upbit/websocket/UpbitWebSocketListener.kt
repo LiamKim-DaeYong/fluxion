@@ -1,4 +1,4 @@
-package io.fluxion.ingestion.upbit
+package io.fluxion.ingestion.upbit.websocket
 
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
@@ -7,7 +7,8 @@ import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.CompletionStage
 
-class UpbitTradeListener(
+// Assembles fragments into complete messages. Upbit sends trades as binary frames.
+class UpbitWebSocketListener(
     private val onDisconnected: () -> Unit,
     private val onPongReceived: () -> Unit,
     private val onMessage: (String) -> Unit,
@@ -16,13 +17,11 @@ class UpbitTradeListener(
     private val textBuffer = StringBuilder()
     private val binaryBuffer = ByteArrayOutputStream()
 
-    // Called once when the connection is established.
     override fun onOpen(webSocket: WebSocket) {
         log.info("Upbit WebSocket opened")
         webSocket.request(1)
     }
 
-    // Called for each text fragment. `last` is true on the final fragment of a message.
     override fun onText(
         webSocket: WebSocket,
         data: CharSequence,
@@ -37,7 +36,6 @@ class UpbitTradeListener(
         return null
     }
 
-    // Called for each binary fragment. `last` is true on the final fragment of a message.
     override fun onBinary(
         webSocket: WebSocket,
         data: ByteBuffer,
@@ -54,7 +52,6 @@ class UpbitTradeListener(
         return null
     }
 
-    // Called when the server sends a Close frame.
     override fun onClose(
         webSocket: WebSocket,
         statusCode: Int,
@@ -65,7 +62,6 @@ class UpbitTradeListener(
         return null
     }
 
-    // Called when the connection fails. No more methods are called afterwards.
     override fun onError(
         webSocket: WebSocket,
         error: Throwable,
@@ -83,7 +79,6 @@ class UpbitTradeListener(
         return null
     }
 
-    // Handles one complete message assembled from fragments.
     private fun handleMessage(message: String) {
         log.debug("Upbit message: {}", message)
         onMessage(message)

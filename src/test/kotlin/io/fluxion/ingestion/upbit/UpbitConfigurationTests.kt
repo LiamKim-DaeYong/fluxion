@@ -1,5 +1,9 @@
 package io.fluxion.ingestion.upbit
 
+import io.fluxion.ingestion.upbit.backfill.UpbitBackfill
+import io.fluxion.ingestion.upbit.backfill.UpbitTradeClient
+import io.fluxion.ingestion.upbit.websocket.UpbitMessageHandler
+import io.fluxion.ingestion.upbit.websocket.UpbitWebSocketClient
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -9,7 +13,6 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.transaction.support.TransactionOperations
 import org.springframework.web.client.RestClient
-import tools.jackson.databind.json.JsonMapper
 import java.net.URI
 import java.time.Duration
 
@@ -18,8 +21,9 @@ class UpbitConfigurationTests {
     private val contextRunner =
         ApplicationContextRunner()
             .withUserConfiguration(
-                PropertiesConfiguration::class.java,
-                UpbitTradeHandler::class.java,
+                InfrastructureConfiguration::class.java,
+                UpbitTradePublisher::class.java,
+                UpbitMessageHandler::class.java,
                 UpbitTradeClient::class.java,
                 UpbitBackfill::class.java,
                 UpbitWebSocketClient::class.java,
@@ -45,6 +49,18 @@ class UpbitConfigurationTests {
             .run { context ->
                 assertThat(context).doesNotHaveBean(UpbitWebSocketClient::class.java)
                 assertThat(context).hasSingleBean(UpbitProperties::class.java)
+            }
+    }
+
+    @Test
+    fun `does not register the other upbit beans when disabled`() {
+        contextRunner
+            .withPropertyValues("fluxion.ingestion.upbit.enabled=false")
+            .run { context ->
+                assertThat(context).doesNotHaveBean(UpbitTradePublisher::class.java)
+                assertThat(context).doesNotHaveBean(UpbitMessageHandler::class.java)
+                assertThat(context).doesNotHaveBean(UpbitTradeClient::class.java)
+                assertThat(context).doesNotHaveBean(UpbitBackfill::class.java)
             }
     }
 
@@ -88,11 +104,12 @@ class UpbitConfigurationTests {
             }
     }
 
+    // Beans that Spring Boot auto-configuration would provide in the real application.
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(UpbitProperties::class)
-    class PropertiesConfiguration {
+    class InfrastructureConfiguration {
         @Bean
-        fun jsonMapper() = JsonMapper()
+        fun jsonMapper() = UpbitFixtures.jsonMapper
 
         @Bean
         fun meterRegistry() = SimpleMeterRegistry()
@@ -100,7 +117,7 @@ class UpbitConfigurationTests {
         @Bean
         fun restClientBuilder(): RestClient.Builder = RestClient.builder()
 
-        // Lets the trade handler run without a real transaction manager.
+        // Lets the trade publisher run without a real transaction manager.
         @Bean
         fun transactionOperations(): TransactionOperations = TransactionOperations.withoutTransaction()
     }
