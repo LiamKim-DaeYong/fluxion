@@ -12,6 +12,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.modulith.events.IncompleteEventPublications
 import org.springframework.transaction.support.TransactionTemplate
 import java.math.BigDecimal
 import java.sql.Timestamp
@@ -30,6 +31,9 @@ class TradeRecorderIntegrationTests {
 
     @Autowired
     lateinit var events: ApplicationEventPublisher
+
+    @Autowired
+    lateinit var incompletePublications: IncompleteEventPublications
 
     @AfterEach
     fun cleanUp() {
@@ -70,6 +74,30 @@ class TradeRecorderIntegrationTests {
         }
     }
 
+    @Test
+    fun `stores a trade on resubmission after the first insert failed`() {
+        // Renaming the table makes the listener's insert fail, standing in for a database error.
+        jdbcTemplate.execute("alter table trade rename to trade_unavailable")
+        try {
+            publish(trade("3"))
+
+            // An incomplete row exists right after publishing, so wait for the listener to actually fail.
+            await().atMost(TIMEOUT).untilAsserted {
+                assertThat(tradePublicationStatuses()).containsExactly("FAILED")
+            }
+        } finally {
+            jdbcTemplate.execute("alter table trade_unavailable rename to trade")
+        }
+
+        // The same mechanism runs on restart when republish-outstanding-events-on-restart is enabled.
+        incompletePublications.resubmitIncompletePublications { it.event is TradeEvent }
+
+        await().atMost(TIMEOUT).untilAsserted {
+            assertThat(countTrades("3")).isEqualTo(1)
+            assertThat(incompleteTradePublications()).isZero()
+        }
+    }
+
     private fun publish(trade: TradeEvent) {
         transactionTemplate.executeWithoutResult { events.publishEvent(trade) }
     }
@@ -83,6 +111,13 @@ class TradeRecorderIntegrationTests {
             Int::class.java,
             TradeEvent::class.java.name,
         )!!
+
+    private fun tradePublicationStatuses(): List<String?> =
+        jdbcTemplate.queryForList(
+            "select status from event_publication where event_type = ?",
+            String::class.java,
+            TradeEvent::class.java.name,
+        )
 
     private fun trade(tradeId: String) =
         TradeEvent(
