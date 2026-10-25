@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit
 class UpbitWebSocketClient(
     private val properties: UpbitProperties,
     private val jsonMapper: JsonMapper,
+    private val tradeHandler: UpbitTradeHandler,
     meterRegistry: MeterRegistry,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -78,7 +79,7 @@ class UpbitWebSocketClient(
             .newWebSocketBuilder()
             .buildAsync(
                 properties.uri,
-                UpbitTradeListener(::handleDisconnect, ::handlePong, messagesReceived::increment),
+                UpbitTradeListener(::handleDisconnect, ::handlePong, ::handleMessage),
             ).whenComplete { webSocket, error ->
                 if (error != null) {
                     log.error("Failed to connect to Upbit WebSocket", error)
@@ -127,6 +128,12 @@ class UpbitWebSocketClient(
         reconnectDelay = minOf(delay.multipliedBy(2), MAX_RECONNECT_DELAY)
         log.info("Reconnecting to Upbit WebSocket in {}s", delay.toSeconds())
         scheduler?.schedule(::connect, delay.toSeconds(), TimeUnit.SECONDS)
+    }
+
+    // Called by the listener for each complete message.
+    private fun handleMessage(message: String) {
+        messagesReceived.increment()
+        tradeHandler.handle(message)
     }
 
     // Called by the listener when Upbit answers our ping.

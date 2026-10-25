@@ -6,6 +6,11 @@ spring:
   modulith:
     runtime:
       flyway-enabled: true
+    events:
+      # Completed publications are deleted; the trade table already keeps every stored trade (#35).
+      completion-mode: delete
+      # Publications left incomplete by a failed listener are sent again when the application restarts.
+      republish-outstanding-events-on-restart: true
 
 management:
   endpoints:
