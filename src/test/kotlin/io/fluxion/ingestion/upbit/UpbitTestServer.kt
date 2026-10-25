@@ -91,6 +91,11 @@ class UpbitTestServer(
             ?.block(Duration.ofSeconds(5))
     }
 
+    // Closes the TCP connection without a Close frame, as a network failure or a crashed server would.
+    fun dropConnection() {
+        currentConnection?.withConnection { it.channel().close().syncUninterruptibly() }
+    }
+
     // Closes the current connection from the server side, as Upbit would.
     fun closeConnection() {
         currentConnection
