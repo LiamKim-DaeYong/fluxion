@@ -1,5 +1,7 @@
 package io.fluxion.ingestion.upbit.websocket
 
+import io.fluxion.ingestion.TradeHistory
+import io.fluxion.ingestion.upbit.Upbit
 import io.fluxion.ingestion.upbit.UpbitProperties
 import io.fluxion.ingestion.upbit.backfill.UpbitBackfill
 import org.slf4j.LoggerFactory
@@ -24,6 +26,7 @@ class UpbitWebSocketClient(
     private val jsonMapper: JsonMapper,
     private val messageHandler: UpbitMessageHandler,
     private val backfill: UpbitBackfill,
+    private val tradeHistory: TradeHistory,
 ) : SmartLifecycle {
     private val log = LoggerFactory.getLogger(javaClass)
     private val httpClient = HttpClient.newHttpClient()
@@ -43,11 +46,17 @@ class UpbitWebSocketClient(
     @Volatile
     private var scheduler: ScheduledExecutorService? = null
 
-    // Null until the first connection opens, so the first connection is not backfilled.
+    // Null until the first connection opens. The first connection backfills from the stored trades instead.
     @Volatile
     private var connectedAt: Instant? = null
 
+    // Last stored trade time by market, read at start. Markets with no stored trade are left out.
+    @Volatile
+    private var lastStoredTradeTimes: Map<String, Instant> = emptyMap()
+
     override fun start() {
+        // Read before connecting, so trades from the new connection cannot move it.
+        lastStoredTradeTimes = readLastStoredTradeTimes()
         running = true
         startPing()
         connect()
@@ -87,6 +96,8 @@ class UpbitWebSocketClient(
                 connectedAt = Instant.now()
                 if (lastConnectedAt != null) {
                     backfillMissedTrades(lastConnectedAt)
+                } else {
+                    backfillRestartGap()
                 }
                 subscribe(webSocket)
             }
@@ -109,6 +120,23 @@ class UpbitWebSocketClient(
                 log.error("Failed to send Upbit subscription", error)
                 null
             }
+    }
+
+    // Live ingestion matters more than the restart gap, so a failed read only skips the restart backfill.
+    private fun readLastStoredTradeTimes(): Map<String, Instant> =
+        try {
+            properties.codes
+                .mapNotNull { market -> tradeHistory.lastTradedAt(Upbit.VENUE, market)?.let { market to it } }
+                .toMap()
+        } catch (e: RuntimeException) {
+            log.warn("Failed to read the last stored Upbit trades, skipping the restart backfill", e)
+            emptyMap()
+        }
+
+    // Fills the gap left while the application was down. Runs once, on the first connection.
+    private fun backfillRestartGap() {
+        lastStoredTradeTimes.forEach { (market, since) -> backfill.backfillAsync(market, since) }
+        lastStoredTradeTimes = emptyMap()
     }
 
     // Reads each market's start time before subscribing, so trades from the new connection cannot move it.

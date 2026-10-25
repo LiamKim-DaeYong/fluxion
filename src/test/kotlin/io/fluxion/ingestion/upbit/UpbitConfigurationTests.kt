@@ -1,5 +1,6 @@
 package io.fluxion.ingestion.upbit
 
+import io.fluxion.ingestion.TradeHistory
 import io.fluxion.ingestion.upbit.backfill.UpbitBackfill
 import io.fluxion.ingestion.upbit.backfill.UpbitTradeClient
 import io.fluxion.ingestion.upbit.websocket.UpbitMessageHandler
@@ -15,6 +16,7 @@ import org.springframework.transaction.support.TransactionOperations
 import org.springframework.web.client.RestClient
 import java.net.URI
 import java.time.Duration
+import java.time.Instant
 
 // Checks conditional registration and property binding without starting the whole application.
 class UpbitConfigurationTests {
@@ -120,5 +122,15 @@ class UpbitConfigurationTests {
         // Lets the trade publisher run without a real transaction manager.
         @Bean
         fun transactionOperations(): TransactionOperations = TransactionOperations.withoutTransaction()
+
+        // Stands in for the marketdata module with no stored trades, so the client starts without a backfill.
+        @Bean
+        fun tradeHistory(): TradeHistory =
+            object : TradeHistory {
+                override fun lastTradedAt(
+                    venue: String,
+                    symbol: String,
+                ): Instant? = null
+            }
     }
 }
