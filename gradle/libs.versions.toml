@@ -17,11 +17,13 @@ spring-boot-starterActuator = { module = "org.springframework.boot:spring-boot-s
 spring-boot-starterDataJpa = { module = "org.springframework.boot:spring-boot-starter-data-jpa" }
 spring-boot-starterFlyway = { module = "org.springframework.boot:spring-boot-starter-flyway" }
 spring-boot-starterWebmvc = { module = "org.springframework.boot:spring-boot-starter-webmvc" }
+spring-boot-starterRestclient = { module = "org.springframework.boot:spring-boot-starter-restclient" }
 spring-boot-dockerCompose = { module = "org.springframework.boot:spring-boot-docker-compose" }
 spring-boot-starterActuatorTest = { module = "org.springframework.boot:spring-boot-starter-actuator-test" }
 spring-boot-starterDataJpaTest = { module = "org.springframework.boot:spring-boot-starter-data-jpa-test" }
 spring-boot-starterFlywayTest = { module = "org.springframework.boot:spring-boot-starter-flyway-test" }
 spring-boot-starterWebmvcTest = { module = "org.springframework.boot:spring-boot-starter-webmvc-test" }
+spring-boot-starterRestclientTest = { module = "org.springframework.boot:spring-boot-starter-restclient-test" }
 spring-boot-testcontainers = { module = "org.springframework.boot:spring-boot-testcontainers" }
 
 spring-modulith-starterCore = { module = "org.springframework.modulith:spring-modulith-starter-core" }

@@ -8,12 +8,14 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.transaction.support.TransactionOperations
+import org.springframework.web.client.RestClient
 import tools.jackson.databind.json.JsonMapper
 import tools.jackson.module.kotlin.KotlinModule
 import java.net.ServerSocket
 import java.net.SocketException
 import java.net.URI
 import java.time.Duration
+import java.time.Instant
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.test.fail
@@ -120,6 +122,35 @@ class UpbitWebSocketClientTests {
     }
 
     @Test
+    fun `does not backfill on the first connection`() {
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+
+        server.assertNoTicksRequest(Duration.ofSeconds(1))
+    }
+
+    @Test
+    fun `backfills trades since the last received trade after reconnecting`() {
+        val lastTradedAt = Instant.now().minusSeconds(60)
+        startClient()
+        server.awaitConnection()
+        server.awaitMessage()
+        server.sendText(tradeMessage(id = 1, tradedAt = lastTradedAt))
+        assertThat((publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent).tradeId).isEqualTo("1")
+
+        // Missed while disconnected: 3 is newer than the last received trade, 1 is the trade itself.
+        server.ticksResponse = "[${tick(id = 3, tradedAt = lastTradedAt.plusSeconds(5))},${tick(id = 1, tradedAt = lastTradedAt)}]"
+        server.closeConnection()
+        server.awaitConnection()
+
+        assertThat(server.awaitTicksRequest()).contains("market=KRW-BTC")
+        // The trade itself is published again and dropped later by the recorder's ON CONFLICT.
+        val backfilled = List(2) { (publishedEvents.poll(5, TimeUnit.SECONDS) as TradeEvent).tradeId }
+        assertThat(backfilled).containsExactly("3", "1")
+    }
+
+    @Test
     fun `retries a failed handshake with a growing delay`() {
         // Answers every handshake with 404, as Upbit does for an unknown path.
         // Closing without a response makes the JDK client retry the request at once, so each attempt would count twice.
@@ -189,27 +220,33 @@ class UpbitWebSocketClientTests {
         pingInterval: Duration = Duration.ofSeconds(30),
     ) {
         server = UpbitTestServer(answerPings)
-        startClientAt(server.uri, pingInterval)
+        startClientAt(server.uri, pingInterval, server.restUri)
     }
 
     private fun startClientAt(
         uri: URI,
         pingInterval: Duration = Duration.ofSeconds(30),
+        restUri: URI = URI.create("http://localhost"),
     ) {
         val jsonMapper = JsonMapper.builder().addModule(KotlinModule.Builder().build()).build()
         val events = ApplicationEventPublisher { publishedEvents.add(it) }
-        client =
-            UpbitWebSocketClient(
-                UpbitProperties(
-                    enabled = true,
-                    uri = uri,
-                    codes = listOf("KRW-BTC"),
-                    pingInterval = pingInterval,
-                ),
-                jsonMapper,
-                UpbitTradeHandler(jsonMapper, events, TransactionOperations.withoutTransaction(), meterRegistry),
-                meterRegistry,
+        val properties =
+            UpbitProperties(
+                enabled = true,
+                uri = uri,
+                codes = listOf("KRW-BTC"),
+                pingInterval = pingInterval,
+                backfill =
+                    UpbitProperties.Backfill(
+                        uri = restUri,
+                        requestInterval = Duration.ZERO,
+                        maxGap = Duration.ofHours(1),
+                    ),
             )
+        val tradeHandler = UpbitTradeHandler(jsonMapper, events, TransactionOperations.withoutTransaction(), meterRegistry)
+        val backfill =
+            UpbitBackfill(properties, UpbitTradeClient(properties, RestClient.builder()), tradeHandler, meterRegistry)
+        client = UpbitWebSocketClient(properties, jsonMapper, tradeHandler, backfill, meterRegistry)
         client.start()
     }
 
@@ -217,6 +254,20 @@ class UpbitWebSocketClientTests {
         private const val TRADE_MESSAGE =
             """{"type":"trade","code":"KRW-BTC","trade_price":1.0,"trade_volume":1.0,""" +
                 """"ask_bid":"BID","trade_timestamp":1,"sequential_id":1}"""
+
+        private fun tradeMessage(
+            id: Long,
+            tradedAt: Instant,
+        ): String =
+            """{"type":"trade","code":"KRW-BTC","trade_price":1.0,"trade_volume":1.0,""" +
+                """"ask_bid":"BID","trade_timestamp":${tradedAt.toEpochMilli()},"sequential_id":$id}"""
+
+        private fun tick(
+            id: Long,
+            tradedAt: Instant,
+        ): String =
+            """{"market":"KRW-BTC","timestamp":${tradedAt.toEpochMilli()},"trade_price":1.0,""" +
+                """"trade_volume":1.0,"ask_bid":"BID","sequential_id":$id}"""
 
         private val NOT_FOUND = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray()
     }

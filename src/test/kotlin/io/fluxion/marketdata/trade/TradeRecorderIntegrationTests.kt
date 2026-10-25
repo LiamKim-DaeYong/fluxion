@@ -12,6 +12,8 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.queryForList
+import org.springframework.jdbc.core.queryForObject
 import org.springframework.modulith.events.IncompleteEventPublications
 import org.springframework.transaction.support.TransactionTemplate
 import java.math.BigDecimal
@@ -103,19 +105,17 @@ class TradeRecorderIntegrationTests {
     }
 
     private fun countTrades(tradeId: String): Int =
-        jdbcTemplate.queryForObject("select count(*) from trade where trade_id = ?", Int::class.java, tradeId)!!
+        jdbcTemplate.queryForObject<Int>("select count(*) from trade where trade_id = ?", tradeId)!!
 
     private fun incompleteTradePublications(): Int =
-        jdbcTemplate.queryForObject(
+        jdbcTemplate.queryForObject<Int>(
             "select count(*) from event_publication where event_type = ? and completion_date is null",
-            Int::class.java,
             TradeEvent::class.java.name,
         )!!
 
     private fun tradePublicationStatuses(): List<String?> =
-        jdbcTemplate.queryForList(
+        jdbcTemplate.queryForList<String>(
             "select status from event_publication where event_type = ?",
-            String::class.java,
             TradeEvent::class.java.name,
         )
 
